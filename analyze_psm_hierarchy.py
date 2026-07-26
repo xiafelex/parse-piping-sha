@@ -15,7 +15,7 @@ import struct
 from collections import Counter
 from pathlib import Path
 
-from analyze_iso_split import read_sha_streams
+from analyze_iso_split import dynamic_graphics, read_sha_streams
 
 
 def utf16_strings(data: bytes) -> list[str]:
@@ -112,6 +112,146 @@ def parse_psm_bbox_record_runs(data: bytes) -> dict[str, object]:
     return {"record_size": 14, "runs": runs, "records": records}
 
 
+def sheet_header_identities(streams: dict[str, bytes]) -> list[dict[str, int | str]]:
+    """Read the observed unaligned Shape2D Sheet identity header fields.
+
+    Starting at byte 4, populated Sheet streams in this sample store
+    ``<I H I I I>``: declared bytes, record family, page kind, an object ref,
+    and the stream's cluster ref.  The two refs are intentionally named by
+    their storage role here; their complete semantic names remain unproven.
+    """
+
+    identities: list[dict[str, int | str]] = []
+    for name, data in streams.items():
+        if not re.fullmatch(r"Sheet\d+", name) or len(data) < 22:
+            continue
+        declared_bytes, record_family, page_kind, object_ref, cluster_ref = struct.unpack_from("<IHIII", data, 4)
+        if data[:4] != b"D\xf5\x90l" or record_family != 0x3D:
+            continue
+        identities.append(
+            {
+                "stream": name,
+                "declared_bytes": declared_bytes,
+                "record_family": record_family,
+                "page_kind": page_kind,
+                "header_object_ref": object_ref,
+                "cluster_ref": cluster_ref,
+            }
+        )
+    return sorted(identities, key=lambda item: int(item["cluster_ref"]))
+
+
+def local_child_sheet_links(
+    nodes: list[dict[str, object]], sheet_headers: list[dict[str, int | str]]
+) -> list[dict[str, object]]:
+    """Report local child refs that land in a Sheet header's observed id span.
+
+    The span ends two ids after ``header_object_ref``.  In the examined file,
+    that catches repeatable ``cluster_ref + 1/+3/+6`` links for two full Sheet
+    streams.  This is a namespace association, not a primitive classification.
+    """
+
+    counts: Counter[tuple[str, int, int]] = Counter()
+    for node in nodes:
+        for child in node["children"]:
+            ref = int(child["ref"])
+            for header in sheet_headers:
+                start = int(header["cluster_ref"])
+                end = int(header["header_object_ref"]) + 2
+                if start <= ref <= end:
+                    counts[(str(header["stream"]), ref, int(child["relation"]))] += 1
+    return [
+        {
+            "sheet": sheet,
+            "local_child_ref": ref,
+            "offset_from_sheet_cluster_ref": ref
+            - next(int(header["cluster_ref"]) for header in sheet_headers if header["stream"] == sheet),
+            "relation": relation,
+            "occurrences": occurrences,
+        }
+        for (sheet, ref, relation), occurrences in sorted(counts.items())
+    ]
+
+
+def parse_segment_table(data: bytes) -> dict[str, object]:
+    """Decode the complete structural framing of the tiny observed ``stab`` table."""
+
+    if len(data) < 8 or data[:4] != b"stab":
+        return {"recognized": False}
+    count = struct.unpack_from("<I", data, 4)[0]
+    if len(data) != 8 + count:
+        return {
+            "recognized": True,
+            "fully_consumed": False,
+            "declared_count": count,
+            "payload_bytes": len(data) - 8,
+        }
+    return {
+        "recognized": True,
+        "fully_consumed": True,
+        "declared_count": count,
+        "values": list(data[8:]),
+        "semantics": "unresolved",
+    }
+
+
+def bbox_tag_summary(
+    records: list[dict[str, object]], nodes: list[dict[str, object]], dynamic_refs: set[int]
+) -> dict[str, dict[str, object]]:
+    """Summarize record tags without treating them as semantic object classes."""
+
+    node_type_by_id = {int(node["id"]): int(node["type"]) for node in nodes}
+    output: dict[str, dict[str, object]] = {}
+    for tag in sorted({int(record["tag"]) for record in records}):
+        tagged = [record for record in records if int(record["tag"]) == tag]
+        node_types = Counter(
+            node_type_by_id[int(record["graphic_ref"])]
+            for record in tagged
+            if int(record["graphic_ref"]) in node_type_by_id
+        )
+        output[str(tag)] = {
+            "record_count": len(tagged),
+            "dynamic_attribute_graphic_count": sum(
+                int(record["graphic_ref"]) in dynamic_refs for record in tagged
+            ),
+            "tseg_node_type_counts": {str(node_type): count for node_type, count in sorted(node_types.items())},
+        }
+    return output
+
+
+def bbox_record_sheet_namespaces(
+    records: list[dict[str, object]], sheet_headers: list[dict[str, int | str]], dynamic_refs: set[int]
+) -> list[dict[str, object]]:
+    """Group PSM record ids by the preceding registered Sheet cluster id.
+
+    In this file, record ids fill intervals immediately after a Sheet's
+    ``cluster_ref`` and before the next Sheet's cluster ref. This establishes
+    an owning *storage namespace*, not a rendered-page membership claim.
+    """
+
+    result: list[dict[str, object]] = []
+    for index, header in enumerate(sheet_headers):
+        start = int(header["cluster_ref"])
+        end = int(sheet_headers[index + 1]["cluster_ref"]) if index + 1 < len(sheet_headers) else None
+        members = [
+            record
+            for record in records
+            if int(record["graphic_ref"]) >= start and (end is None or int(record["graphic_ref"]) < end)
+        ]
+        result.append(
+            {
+                "sheet": header["stream"],
+                "graphic_ref_interval": [start, end],
+                "record_count": len(members),
+                "tag_counts": {str(tag): count for tag, count in sorted(Counter(int(record["tag"]) for record in members).items())},
+                "dynamic_attribute_graphic_count": sum(
+                    int(record["graphic_ref"]) in dynamic_refs for record in members
+                ),
+            }
+        )
+    return result
+
+
 def partial_tseg_summary(data: bytes) -> dict[str, object]:
     """Summarize a tseg stream without claiming its trailing layout is decoded."""
 
@@ -152,6 +292,13 @@ def analyze(sha_path: Path) -> dict[str, object]:
         raise ValueError(f"{main_name} is absent")
     hierarchy = parse_tseg_nodes(main)
     bbox_index = parse_psm_bbox_record_runs(streams.get("PSMcluster0", b""))
+    sheet_headers = sheet_header_identities(streams)
+    child_sheet_links = local_child_sheet_links(hierarchy["nodes"], sheet_headers)
+    dynamic_refs = {
+        int(record["graphic_ref"])
+        for records in dynamic_graphics(streams.get("Unclustered Dynamic Attributes", b"")).values()
+        for record in records
+    }
     relation_counts = Counter(
         child["relation"]
         for node in hierarchy["nodes"]
@@ -170,6 +317,13 @@ def analyze(sha_path: Path) -> dict[str, object]:
                 "record_count": len(bbox_index["records"]),
                 "runs": bbox_index["runs"],
             },
+            "psmcluster0_tag_summary": bbox_tag_summary(bbox_index["records"], hierarchy["nodes"], dynamic_refs),
+            "sheet_header_identities": sheet_headers,
+            "psmcluster0_record_sheet_namespaces": bbox_record_sheet_namespaces(
+                bbox_index["records"], sheet_headers, dynamic_refs
+            ),
+            "local_child_sheet_namespace_links": child_sheet_links,
+            "segment_table": parse_segment_table(streams.get("PSMsegmenttable", b"")),
             "relation_code_counts": {str(key): value for key, value in sorted(relation_counts.items())},
         },
         "not_yet_decoded": {
@@ -184,7 +338,9 @@ def analyze(sha_path: Path) -> dict[str, object]:
         },
         "confidence_notice": (
             "Node and child-reference boundaries for PSMspacemap/0x00008000 are validated by full stream consumption. "
-            "Relation-code semantics and links from local child references to PSMcluster0/Sheet primitives remain unresolved."
+            "Some local child references repeatably land in Sheet header id spans, but relation-code semantics and links "
+            "from those local references to PSMcluster0/Sheet primitives remain unresolved. PSMcluster0 tag values are "
+            "structurally summarized only and must not be treated as component classes."
         ),
     }
 

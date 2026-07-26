@@ -115,6 +115,26 @@ table and are likely an aggregation layer. The local refs do not overlap node
 IDs, so do not label relation codes `182`, `183`, `184`, `190`, or `201` as
 specific drawing primitive types without a cross-sample proof.
 
+The current report also reads the observed unaligned Sheet identity header
+`<I H I I I>` at byte 4 and reports local child refs that land inside the
+header's local id span. In the examined file, `Sheet34246` and `Sheet36113`
+show repeatable `cluster_ref + 1`, `+3`, and `+6` targets under relations
+`183`, `182`, and `184`. This proves a Sheet-local namespace association only;
+it does not identify those relations as line/text/flange primitives.
+
+The current `PSMsegmenttable` is structurally complete in the examined file:
+`stab` + a uint32 count + exactly that many payload bytes. Its six payload
+values are decoded as bytes but their semantics are unknown. `PSMcluster0`
+tag values are likewise only statistical record tags: the same tag can occur
+on dynamic UCI-linked graphics and non-dynamic template/layout graphics, so do
+not call a tag a component class.
+
+`PSMcluster0` graphic refs can be grouped into intervals starting at a Sheet
+header's `cluster_ref` and ending at the next Sheet `cluster_ref`. This is a
+verified storage-namespace association in the examined file, useful for
+narrowing which Sheet stream to decode next. It is not proof that the records
+appear on that rendered ISO page or belong to one UCI.
+
 `PSMcluster0` additionally has observed contiguous `<I5H>` envelope-record
 runs in the examined file. Accept a run only after at least three consecutive
 plausible 14-byte records; this avoids treating an arbitrary byte occurrence
