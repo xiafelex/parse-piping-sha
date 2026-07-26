@@ -14,6 +14,8 @@ python3 -m pip install -r requirements.txt
 python3 run_sha_iso_render.py /path/to/drawing.sha --page 1 --out-dir output/sha_svg
 ```
 
+Use `--all-pages` to render every logical ISO Sheet in a multi-page SHA.
+
 Add `--png` when Node.js and Playwright are installed. See
 [`SHA_ISO_AI_HANDOFF.md`](SHA_ISO_AI_HANDOFF.md) for the full workflow and the
 prompt to give another AI. [`SKILL.md`](SKILL.md) is the reusable Codex skill.

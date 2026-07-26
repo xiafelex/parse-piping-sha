@@ -71,6 +71,13 @@ The standard command is:
 python3 run_sha_iso_render.py /path/to/drawing.sha --page 1 --out-dir output/sha_svg --png
 ```
 
+For a multi-page SHA, first inventory all populated `Sheet*` streams and then
+render all recognized logical pages with:
+
+```bash
+python3 run_sha_iso_render.py /path/to/drawing.sha --all-pages --out-dir output/sha_svg --png
+```
+
 The wrapper emits an SVG and a trace JSON; PNG output is optional. It accepts
 an optional component layer only when that SVG is documented as SHA-derived
 from the exact same source SHA. Never accept a PDF as an algorithm input.

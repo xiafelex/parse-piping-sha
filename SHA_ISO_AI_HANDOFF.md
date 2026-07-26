@@ -34,6 +34,12 @@ npx playwright install chromium
 python3 run_sha_iso_render.py /path/to/drawing.sha --page 1 --out-dir output/sha_svg --png
 ```
 
+For every logical ISO page in a multi-sheet SHA:
+
+```bash
+python3 run_sha_iso_render.py /path/to/drawing.sha --all-pages --out-dir output/sha_svg --png
+```
+
 It creates:
 
 - `*.svg`: SHA-derived vector reconstruction.

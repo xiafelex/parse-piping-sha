@@ -18,14 +18,31 @@ import subprocess
 import sys
 from pathlib import Path
 
+from analyze_iso_split import read_sha_streams
+from analyze_sha_pages import logical_page, text_objects
+
 
 ROOT = Path(__file__).resolve().parent
+
+
+def available_pages(sha_path: Path) -> list[int]:
+    """Return logical ISO pages from all populated Shape2D Sheet streams."""
+
+    pages: set[int] = set()
+    for name, data in read_sha_streams(sha_path).items():
+        if not name.startswith("Sheet") or len(data) <= 1024:
+            continue
+        page = logical_page(text_objects(data))
+        if page is not None:
+            pages.add(page[0])
+    return sorted(pages)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("sha", type=Path, help="Source Shape2D/PDMS SHA file.")
     parser.add_argument("--page", type=int, default=1, help="Logical ISO page number (default: 1).")
+    parser.add_argument("--all-pages", action="store_true", help="Render every logical ISO page found in the SHA.")
     parser.add_argument("--out-dir", type=Path, default=Path("output/sha_svg"), help="Artifact directory.")
     parser.add_argument(
         "--component-layer",
@@ -40,25 +57,31 @@ def main() -> None:
     if args.component_layer is not None and not args.component_layer.is_file():
         parser.error(f"Component layer not found: {args.component_layer}")
 
+    pages = available_pages(args.sha) if args.all_pages else [args.page]
+    if not pages:
+        parser.error("No logical ISO pages were found in the SHA.")
     stem = args.sha.stem
     output_dir = args.out_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-    svg = output_dir / f"{stem}-page-{args.page}-sha.svg"
-    manifest = output_dir / f"{stem}-page-{args.page}-sha.trace.json"
-    command = [
-        sys.executable,
-        str(ROOT / "sha_to_svg_prototype.py"),
-        str(args.sha.resolve()),
-        "--page",
-        str(args.page),
-        "--output",
-        str(svg),
-        "--manifest",
-        str(manifest),
-    ]
-    if args.component_layer is not None:
-        command.extend(["--component-layer", str(args.component_layer.resolve())])
-    subprocess.run(command, check=True)
+    artifacts: list[tuple[Path, Path]] = []
+    for page_number in pages:
+        svg = output_dir / f"{stem}-page-{page_number}-sha.svg"
+        manifest = output_dir / f"{stem}-page-{page_number}-sha.trace.json"
+        command = [
+            sys.executable,
+            str(ROOT / "sha_to_svg_prototype.py"),
+            str(args.sha.resolve()),
+            "--page",
+            str(page_number),
+            "--output",
+            str(svg),
+            "--manifest",
+            str(manifest),
+        ]
+        if args.component_layer is not None:
+            command.extend(["--component-layer", str(args.component_layer.resolve())])
+        subprocess.run(command, check=True)
+        artifacts.append((svg, manifest))
 
     if args.png:
         node = shutil.which("node")
@@ -84,12 +107,14 @@ const path = require("path");
 })();
 '''
             try:
-                subprocess.run([node, "-e", script, str(svg), str(svg) + ".png"], check=True, cwd=ROOT)
+                for svg, _ in artifacts:
+                    subprocess.run([node, "-e", script, str(svg), str(svg) + ".png"], check=True, cwd=ROOT)
             except subprocess.CalledProcessError:
                 print("PNG skipped: install Playwright with `npm install playwright` and retry --png.")
 
-    print(f"SVG: {svg}")
-    print(f"Trace manifest: {manifest}")
+    for svg, manifest in artifacts:
+        print(f"SVG: {svg}")
+        print(f"Trace manifest: {manifest}")
 
 
 if __name__ == "__main__":
