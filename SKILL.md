@@ -135,6 +135,19 @@ verified storage-namespace association in the examined file, useful for
 narrowing which Sheet stream to decode next. It is not proof that the records
 appear on that rendered ISO page or belong to one UCI.
 
+`PSMspacemap/0x00000000` is now structurally fully consumed in the examined
+file, but it uses a mixed layout: ordinary records are `<4H>` plus `<IH>`
+children, while compact records are `<3H>` plus children and a trailing uint16.
+When both layouts have the same length, choose the layout whose child relations
+match the observed `181/182/183/184/190/201` family; the final compact node
+omits its trailer. This yields 2,200 nodes. Its type numbers, trailing values,
+and relation-code semantics are still unresolved.
+
+The short maps `0x2000`, `0x4000`, and `0x6000` are structurally complete as
+`tseg` plus two uint16 header words and a uint16 payload list. Their values are
+now extracted, but the lists' index/segment meaning is unresolved; do not link
+them to graphic ids without a cross-sample mapping.
+
 `PSMcluster0` additionally has observed contiguous `<I5H>` envelope-record
 runs in the examined file. Accept a run only after at least three consecutive
 plausible 14-byte records; this avoids treating an arbitrary byte occurrence

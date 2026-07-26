@@ -68,6 +68,96 @@ def parse_tseg_nodes(data: bytes) -> dict[str, object]:
     }
 
 
+def parse_tseg_spacemap0(data: bytes) -> dict[str, object]:
+    """Parse the fully consumed mixed node layout in ``PSMspacemap/0x00000000``.
+
+    A standard record uses the same `<4H>` header plus `<IH>` children as the
+    0x8000 map. A compact record uses a `<3H>` header, children, and a trailing
+    uint16. Where both layouts have the same byte length, choose the one whose
+    child relations best match the observed relation-code family shared with
+    the fully decoded 0x8000 map. The final compact node omits its trailing
+    uint16 and ends exactly at the stream boundary.
+    """
+
+    if len(data) < 12 or data[:4] != b"tseg":
+        raise ValueError("not a tseg stream")
+    offset = 12
+    nodes: list[dict[str, object]] = []
+    while offset < len(data):
+        if offset + 6 > len(data):
+            raise ValueError(f"truncated node header at {offset}")
+        node_id, node_type, child_count = struct.unpack_from("<3H", data, offset)
+        if child_count > 500:
+            raise ValueError(f"invalid child count at {offset}: {child_count}")
+        compact_child_offset = offset + 6
+        compact_end = compact_child_offset + child_count * 6
+        compact_with_trailer_end = compact_end + 2
+        if compact_end > len(data):
+            raise ValueError(f"truncated compact node at {offset}")
+
+        compact_children = [
+            {"ref": child_ref, "relation": relation}
+            for child_ref, relation in (
+                struct.unpack_from("<IH", data, compact_child_offset + index * 6)
+                for index in range(child_count)
+            )
+        ]
+        standard_end = offset + 8 + child_count * 6
+        standard_children: list[dict[str, int]] = []
+        if standard_end <= len(data):
+            standard_children = [
+                {"ref": child_ref, "relation": relation}
+                for child_ref, relation in (
+                    struct.unpack_from("<IH", data, offset + 8 + index * 6)
+                    for index in range(child_count)
+                )
+            ]
+        known_relations = {181, 182, 183, 184, 190, 201}
+        standard_score = sum(child["relation"] in known_relations for child in standard_children)
+        compact_score = sum(child["relation"] in known_relations for child in compact_children)
+        # Standard records are used only when they carry positive evidence.
+        # This avoids mistaking compact zero-relations for a valid tie.
+        if standard_score > 0 and standard_score >= compact_score:
+            repeated_count = struct.unpack_from("<H", data, offset + 6)[0]
+            child_offset = offset + 8
+            end = standard_end
+            trailing_value = None
+            layout = "standard"
+            children = standard_children
+        else:
+            child_offset = compact_child_offset
+            if compact_with_trailer_end <= len(data):
+                end = compact_with_trailer_end
+                trailing_value = struct.unpack_from("<H", data, compact_end)[0]
+                layout = "compact-with-trailer"
+            elif compact_end == len(data):
+                end = compact_end
+                trailing_value = None
+                layout = "terminal-compact"
+            else:
+                raise ValueError(f"truncated compact trailer at {offset}")
+            repeated_count = None
+            children = compact_children
+        nodes.append(
+            {
+                "id": node_id,
+                "type": node_type,
+                "child_count": child_count,
+                "repeated_count": repeated_count,
+                "trailing_value": trailing_value,
+                "layout": layout,
+                "children": children,
+            }
+        )
+        offset = end
+    return {
+        "header_u32": list(struct.unpack_from("<2I", data, 4)),
+        "node_count": len(nodes),
+        "nodes": nodes,
+        "fully_consumed": offset == len(data),
+    }
+
+
 def parse_psm_bbox_record_runs(data: bytes) -> dict[str, object]:
     """Index observed contiguous ``PSMcluster0`` `<I5H>` envelope runs.
 
@@ -195,6 +285,21 @@ def parse_segment_table(data: bytes) -> dict[str, object]:
     }
 
 
+def parse_short_tseg_u16_list(data: bytes) -> dict[str, object]:
+    """Decode the complete framing of short tseg streams as uint16 payloads."""
+
+    if len(data) < 8 or data[:4] != b"tseg" or (len(data) - 4) % 2:
+        return {"recognized": False}
+    words = list(struct.unpack_from("<" + str((len(data) - 4) // 2) + "H", data, 4))
+    return {
+        "recognized": True,
+        "fully_consumed": True,
+        "header_u16": words[:2],
+        "payload_u16": words[2:],
+        "semantics": "unresolved",
+    }
+
+
 def bbox_tag_summary(
     records: list[dict[str, object]], nodes: list[dict[str, object]], dynamic_refs: set[int]
 ) -> dict[str, dict[str, object]]:
@@ -291,6 +396,7 @@ def analyze(sha_path: Path) -> dict[str, object]:
     if main is None:
         raise ValueError(f"{main_name} is absent")
     hierarchy = parse_tseg_nodes(main)
+    spacemap0 = parse_tseg_spacemap0(space_streams["PSMspacemap/0x00000000"])
     bbox_index = parse_psm_bbox_record_runs(streams.get("PSMcluster0", b""))
     sheet_headers = sheet_header_identities(streams)
     child_sheet_links = local_child_sheet_links(hierarchy["nodes"], sheet_headers)
@@ -304,6 +410,11 @@ def analyze(sha_path: Path) -> dict[str, object]:
         for node in hierarchy["nodes"]
         for child in node["children"]
     )
+    spacemap0_relation_counts = Counter(
+        child["relation"]
+        for node in spacemap0["nodes"]
+        for child in node["children"]
+    )
     return {
         "source_sha": str(sha_path),
         "validated": {
@@ -311,6 +422,18 @@ def analyze(sha_path: Path) -> dict[str, object]:
             "root_registry_names": utf16_strings(streams.get("PSMroots", b"")),
             "spacemap": main_name,
             "tseg": hierarchy,
+            "spacemap0": {
+                "header_u32": spacemap0["header_u32"],
+                "node_count": spacemap0["node_count"],
+                "fully_consumed": spacemap0["fully_consumed"],
+                "layout_counts": dict(Counter(str(node["layout"]) for node in spacemap0["nodes"])),
+                "node_type_counts": {
+                    str(node_type): count
+                    for node_type, count in sorted(Counter(int(node["type"]) for node in spacemap0["nodes"]).items())
+                },
+                "relation_code_counts": {str(key): value for key, value in sorted(spacemap0_relation_counts.items())},
+                "terminal_node": spacemap0["nodes"][-1],
+            },
             "psmcluster0_bbox_runs": {
                 "record_size": bbox_index["record_size"],
                 "run_count": len(bbox_index["runs"]),
@@ -324,12 +447,27 @@ def analyze(sha_path: Path) -> dict[str, object]:
             ),
             "local_child_sheet_namespace_links": child_sheet_links,
             "segment_table": parse_segment_table(streams.get("PSMsegmenttable", b"")),
+            "short_spacemap_u16_lists": {
+                name: parse_short_tseg_u16_list(space_streams[name])
+                for name in (
+                    "PSMspacemap/0x00002000",
+                    "PSMspacemap/0x00004000",
+                    "PSMspacemap/0x00006000",
+                )
+                if name in space_streams
+            },
             "relation_code_counts": {str(key): value for key, value in sorted(relation_counts.items())},
         },
         "not_yet_decoded": {
             name: partial_tseg_summary(data)
             for name, data in space_streams.items()
-            if name != main_name
+            if name not in {
+                main_name,
+                "PSMspacemap/0x00000000",
+                "PSMspacemap/0x00002000",
+                "PSMspacemap/0x00004000",
+                "PSMspacemap/0x00006000",
+            }
         },
         "other_psm_streams": {
             name: len(data)
