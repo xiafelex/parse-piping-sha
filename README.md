@@ -66,6 +66,7 @@ The app embeds the ISO parsing engine; it does not require Python after
 installation. Because this internal build is not Apple-notarized, macOS may
 require **Control-click -> Open** the first time. Imported projects and their
 immutable source copies are stored in the app's Application Support directory.
+If the engine cannot start, see `engine-startup.log` in that same directory.
 
 ## Tools
 
