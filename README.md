@@ -24,6 +24,7 @@ prompt to give another AI. [`SKILL.md`](SKILL.md) is the reusable Codex skill.
 - `analyze_iso_split.py`: UCI/graphic/page split analysis.
 - `analyze_sha_pages.py`: page and same-line split inspection.
 - `analyze_psm_hierarchy.py`: validated PSM hierarchy evidence extractor.
+- `render_psm_hierarchy_overlay.py`: SHA-only visual diagnostic for candidate PSM node envelopes.
 - `run_sha_iso_render.py`: convenience wrapper for SVG, trace JSON, and PNG.
 
 ## Status
@@ -32,3 +33,19 @@ The renderer decodes observed line, composite, arc, ellipse, text, template,
 and selected PSM layout records. `PSMspacemap/0x00008000` has a validated
 hierarchy-node parser; relation-code semantics and several other PSM streams
 remain intentionally unresolved pending cross-sample verification.
+
+## PSM Diagnostic Overlay
+
+To inspect what the validated hierarchy records cover on a page, generate a
+separate, explicitly non-semantic overlay:
+
+```bash
+python3 render_psm_hierarchy_overlay.py /path/to/drawing.sha --page 1 \
+  --output output/psm-type2-candidates.svg --types 2 --png
+```
+
+The default shows only type-2 nodes with ids at least `0x500`, which keeps the
+visual legible. Add `--types 2,3` for the broader aggregation-layer view. The
+boxes are candidate matches only: a numeric node id is matched to a plausible
+record-bounded `PSMcluster0` envelope. They do not yet identify a box as text, flange, weld,
+or any other semantic drawing element.

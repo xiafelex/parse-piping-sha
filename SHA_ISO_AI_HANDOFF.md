@@ -10,6 +10,7 @@ must never provide geometry, text, coordinates, or placement values.
 - `analyze_iso_split.py`
 - `analyze_sha_pages.py`
 - `analyze_psm_hierarchy.py`
+- `render_psm_hierarchy_overlay.py`
 - `run_sha_iso_render.py`
 - `SHA_ISO_AI_HANDOFF.md`
 - `parse-piping-sha/SKILL.md` from the installed Codex skill directory
@@ -64,6 +65,19 @@ claim those local references have already been linked to Sheet primitives.
 In the examined sample the validated table has 1,994 nodes, 432 of whose IDs
 also resolve to a `PSMcluster0` envelope. This supports a hierarchy link but
 does not yet define the semantics of relation codes or local child references.
+
+To inspect those candidate envelope matches without treating them as decoded
+components, use the separate diagnostic output:
+
+```bash
+python3 render_psm_hierarchy_overlay.py /path/to/drawing.sha --page 1 \
+  --output output/psm-type2-candidates.svg --types 2 --png
+```
+
+The default focuses on type-2 nodes with ids from `0x500` upward. It overlays
+the matched `PSMcluster0` envelope on a SHA-only page reconstruction and labels
+only sufficiently large envelopes so that thin strokes remain visible. This
+does not classify a node as text, a flange, a weld, or any other primitive.
 
 ## Prompt For Another AI
 

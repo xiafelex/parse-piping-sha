@@ -68,6 +68,50 @@ def parse_tseg_nodes(data: bytes) -> dict[str, object]:
     }
 
 
+def parse_psm_bbox_record_runs(data: bytes) -> dict[str, object]:
+    """Index observed contiguous ``PSMcluster0`` `<I5H>` envelope runs.
+
+    This deliberately requires at least three consecutive plausible 14-byte
+    records before accepting a run.  It is stronger than searching raw bytes
+    for an id, but it still does not establish the final uint16's semantics.
+    """
+
+    def valid_at(offset: int) -> bool:
+        if offset + 14 > len(data):
+            return False
+        graphic_ref, left, bottom, right, top, tag = struct.unpack_from("<I5H", data, offset)
+        return (
+            1 <= graphic_ref < 0x100000
+            and left < right <= 16800
+            and bottom < top <= 11880
+            and tag <= 20
+        )
+
+    runs: list[dict[str, int]] = []
+    records: list[dict[str, object]] = []
+    offset = 0
+    while offset + 42 <= len(data):
+        if not (valid_at(offset) and valid_at(offset + 14) and valid_at(offset + 28)):
+            offset += 1
+            continue
+        start = offset
+        count = 0
+        while valid_at(offset):
+            graphic_ref, left, bottom, right, top, tag = struct.unpack_from("<I5H", data, offset)
+            records.append(
+                {
+                    "graphic_ref": graphic_ref,
+                    "bbox": [left, bottom, right, top],
+                    "tag": tag,
+                    "offset": offset,
+                }
+            )
+            count += 1
+            offset += 14
+        runs.append({"offset": start, "record_count": count})
+    return {"record_size": 14, "runs": runs, "records": records}
+
+
 def partial_tseg_summary(data: bytes) -> dict[str, object]:
     """Summarize a tseg stream without claiming its trailing layout is decoded."""
 
@@ -107,6 +151,7 @@ def analyze(sha_path: Path) -> dict[str, object]:
     if main is None:
         raise ValueError(f"{main_name} is absent")
     hierarchy = parse_tseg_nodes(main)
+    bbox_index = parse_psm_bbox_record_runs(streams.get("PSMcluster0", b""))
     relation_counts = Counter(
         child["relation"]
         for node in hierarchy["nodes"]
@@ -119,6 +164,12 @@ def analyze(sha_path: Path) -> dict[str, object]:
             "root_registry_names": utf16_strings(streams.get("PSMroots", b"")),
             "spacemap": main_name,
             "tseg": hierarchy,
+            "psmcluster0_bbox_runs": {
+                "record_size": bbox_index["record_size"],
+                "run_count": len(bbox_index["runs"]),
+                "record_count": len(bbox_index["records"]),
+                "runs": bbox_index["runs"],
+            },
             "relation_code_counts": {str(key): value for key, value in sorted(relation_counts.items())},
         },
         "not_yet_decoded": {

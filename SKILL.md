@@ -62,7 +62,7 @@ Provide a concise report with page count, UCI count, resource status, decoded ve
 
 When this workflow is handed to a colleague, send the skill together with the
 algorithm files `sha_to_svg_prototype.py`, `analyze_iso_split.py`,
-`analyze_sha_pages.py`, `analyze_psm_hierarchy.py`, and `run_sha_iso_render.py`. Include
+`analyze_sha_pages.py`, `analyze_psm_hierarchy.py`, `render_psm_hierarchy_overlay.py`, and `run_sha_iso_render.py`. Include
 `SHA_ISO_AI_HANDOFF.md` as the execution and evidence-rule contract.
 
 The standard command is:
@@ -95,9 +95,28 @@ codes are evidence only. Their semantic meaning and their link back to
 `PSMcluster0`/Sheet primitives must be established before using them for
 rendering.
 
+To inspect the current evidence visually without assigning unsupported
+semantics, run:
+
+```bash
+python3 render_psm_hierarchy_overlay.py /path/to/drawing.sha --page 1 \
+  --output output/psm-type2-candidates.svg --types 2 --png
+```
+
+This produces a separate SHA-only diagnostic SVG: type-2 `0x8000` node ids
+at least `0x500` are matched numerically to record-bounded `PSMcluster0` envelopes
+and overlaid on the SHA-only render. It is an investigation aid, not a
+primitive decoder. Use `--types 2,3` only for the denser aggregate view.
+
 Current evidence from the examined SHA: the validated `0x8000` table has 1,994
 nodes, with 432 node IDs also resolving to a `PSMcluster0` envelope. Type-2
 nodes commonly carry one or two local child refs; type-3 nodes dominate the
 table and are likely an aggregation layer. The local refs do not overlap node
 IDs, so do not label relation codes `182`, `183`, `184`, `190`, or `201` as
 specific drawing primitive types without a cross-sample proof.
+
+`PSMcluster0` additionally has observed contiguous `<I5H>` envelope-record
+runs in the examined file. Accept a run only after at least three consecutive
+plausible 14-byte records; this avoids treating an arbitrary byte occurrence
+as a graphic reference. The final `uint16` is still an unresolved tag, and
+these records alone do not decode PSM primitive semantics.
