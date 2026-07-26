@@ -7,3 +7,5 @@ tmp/
 *.pcf
 *.pdf
 *.png
+app_data/
+apps/desktop/node_modules/

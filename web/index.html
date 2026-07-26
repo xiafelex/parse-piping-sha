@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>管道 ISO 工作台</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="masthead">
+      <div>
+        <p class="eyebrow">PCF + SHA / FIRST STAGE</p>
+        <h1>管道 ISO 工作台</h1>
+        <p class="subtitle">导入、解析、浏览和溯源。原始 PCF/SHA 始终保持只读。</p>
+      </div>
+      <div class="source-rule">PDF 仅用于视觉验收<br />不会参与还原或坐标计算</div>
+    </header>
+
+    <main>
+      <section class="project-bar" aria-label="项目管理">
+        <label>项目
+          <select id="project-select"></select>
+        </label>
+        <button id="new-project" class="secondary">新建项目</button>
+        <span id="project-state" class="state"></span>
+      </section>
+
+      <section id="welcome" class="welcome">
+        <p class="eyebrow">开始</p>
+        <h2>建立一个本地 ISO 项目</h2>
+        <p>先创建项目，再导入一个或多个 PCF 和 SHA。系统会生成多页 SVG、页/对象统计、UCI 直接关联和同线分图候选。</p>
+        <button id="welcome-create">创建项目</button>
+      </section>
+
+      <div id="workspace" hidden>
+        <section class="import-panel">
+          <div>
+            <p class="eyebrow">01 / 导入源文件</p>
+            <h2>PCF 与 SHA</h2>
+            <p>文件会复制进本地项目目录并记录 SHA-256；分析只写派生工件。</p>
+          </div>
+          <label class="drop-zone" for="file-input">
+            <input id="file-input" type="file" accept=".pcf,.sha" multiple />
+            <span>选择 PCF / SHA 文件</span>
+            <small>可多选；支持拖拽</small>
+          </label>
+          <div class="import-actions">
+            <button id="analyze" disabled>运行分析</button>
+            <span id="import-status" class="state"></span>
+          </div>
+        </section>
+
+        <section class="source-section">
+          <div class="section-heading"><p class="eyebrow">原件清单</p><h2>已导入文件</h2></div>
+          <div id="sources" class="source-list"></div>
+        </section>
+
+        <section id="analysis" hidden>
+          <div class="section-heading"><p class="eyebrow">02 / 解析结果</p><h2>项目诊断</h2><p id="analysis-time" class="state"></p></div>
+          <div id="metrics" class="metrics"></div>
+          <p id="confidence-notice" class="notice"></p>
+          <div class="analysis-grid">
+            <article><h3>PCF 工程模型</h3><div id="pcf-summary"></div></article>
+            <article><h3>SHA 绘图模型</h3><div id="sha-summary"></div></article>
+            <article><h3>同线分图候选</h3><div id="split-summary"></div></article>
+            <article><h3>未解码或待确认</h3><div id="unresolved"></div></article>
+          </div>
+        </section>
+
+        <section id="viewer" class="viewer" hidden>
+          <div class="section-heading"><p class="eyebrow">03 / 多页浏览与溯源</p><h2>SHA 派生 SVG</h2></div>
+          <div id="page-tabs" class="page-tabs"></div>
+          <div class="canvas-layout">
+            <div class="canvas-shell"><div id="svg-canvas" class="svg-canvas"></div></div>
+            <aside class="inspector">
+              <p class="eyebrow">对象检查器</p>
+              <h3 id="inspect-title">选择图元</h3>
+              <p id="inspect-description">点击图纸上的管线、文本、符号或框线，查看 SVG 中保留的 SHA 溯源属性。</p>
+              <pre id="inspect-data"></pre>
+              <a id="trace-link" hidden target="_blank" rel="noreferrer">打开本页 Trace JSON</a>
+            </aside>
+          </div>
+        </section>
+      </div>
+    </main>
+    <template id="metric-template"><article class="metric"><p></p><strong></strong></article></template>
+    <script src="/app.js"></script>
+  </body>
+</html>

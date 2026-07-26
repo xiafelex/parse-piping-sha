@@ -1,0 +1,13 @@
+{
+  "name": "piping-iso-workspace-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Electron shell for the local PCF + SHA ISO workspace.",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^37.0.0"
+  }
+}

@@ -22,6 +22,33 @@ prompt to give another AI. [`SKILL.md`](SKILL.md) is the reusable Codex skill.
 See [`APP_DEVELOPMENT_PLAN.md`](APP_DEVELOPMENT_PLAN.md) for the proposed
 desktop product architecture, phases, data model, and acceptance criteria.
 
+## First-stage local workspace
+
+The repository now includes a local-first import and analysis workspace. It
+creates a project directory, copies PCF/SHA source files as immutable originals,
+records SHA-256 hashes, renders every SHA ISO page to SVG plus a trace JSON, and
+shows PCF/SHA UCI coverage and candidate same-line split interfaces.
+
+```bash
+python3 app_server.py
+```
+
+Open `http://127.0.0.1:8765`, create a project, import `.pcf` and `.sha` files,
+then select **运行分析**. Generated artifacts are written under `app_data/` and
+can be relocated with `--data-dir`. PDFs are deliberately excluded from import
+because they remain visual QA evidence only, never reconstruction input.
+
+For a desktop window, install Electron once and start the thin local shell:
+
+```bash
+cd apps/desktop
+npm install
+npm start
+```
+
+The Electron shell starts the same `app_server.py` engine and does not send
+source files to a remote service.
+
 ## Tools
 
 - `sha_to_svg_prototype.py`: SHA-only SVG renderer plus JSON trace manifest.
