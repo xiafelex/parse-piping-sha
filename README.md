@@ -21,6 +21,9 @@ Add `--png` when Node.js and Playwright are installed. See
 prompt to give another AI. [`SKILL.md`](SKILL.md) is the reusable Codex skill.
 See [`APP_DEVELOPMENT_PLAN.md`](APP_DEVELOPMENT_PLAN.md) for the proposed
 desktop product architecture, phases, data model, and acceptance criteria.
+The collaborative samples, SHA-derived artifacts, and Chinese research history
+are in [`research/README.md`](research/README.md) and
+[`docs/RESEARCH_JOURNEY_CN.md`](docs/RESEARCH_JOURNEY_CN.md).
 
 ## First-stage local workspace
 
