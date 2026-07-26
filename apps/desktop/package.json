@@ -5,9 +5,34 @@
   "description": "Electron shell for the local PCF + SHA ISO workspace.",
   "main": "main.cjs",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "build:engine": "python3 build_engine.py",
+    "dist:mac": "npm run build:engine && electron-builder --mac dmg zip --arm64"
   },
   "devDependencies": {
-    "electron": "^37.0.0"
+    "electron": "^37.0.0",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.xiafelex.piping-iso-workspace",
+    "productName": "Piping ISO Workspace",
+    "files": [
+      "main.cjs",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build/engine/piping-iso-engine",
+        "to": "engine/piping-iso-engine"
+      }
+    ],
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.productivity",
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    }
   }
 }

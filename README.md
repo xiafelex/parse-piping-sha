@@ -49,6 +49,24 @@ npm start
 The Electron shell starts the same `app_server.py` engine and does not send
 source files to a remote service.
 
+## macOS application package
+
+For a self-contained Apple Silicon (`arm64`) application, build the embedded
+Python engine and the Electron package from a Mac with Python 3 and Node.js:
+
+```bash
+python3 -m pip install pyinstaller
+cd apps/desktop
+npm install
+npm run dist:mac
+```
+
+The resulting `.app`, `.dmg`, and `.zip` are written to `apps/desktop/dist/`.
+The app embeds the ISO parsing engine; it does not require Python after
+installation. Because this internal build is not Apple-notarized, macOS may
+require **Control-click -> Open** the first time. Imported projects and their
+immutable source copies are stored in the app's Application Support directory.
+
 ## Tools
 
 - `sha_to_svg_prototype.py`: SHA-only SVG renderer plus JSON trace manifest.

@@ -1,11 +1,24 @@
 const { app, BrowserWindow, dialog } = require('electron');
 const { spawn } = require('child_process');
 const http = require('http');
+const net = require('net');
 const path = require('path');
 
 const repositoryRoot = path.resolve(__dirname, '../..');
-const serverUrl = 'http://127.0.0.1:8765';
+let serverUrl;
 let engineProcess;
+
+function findFreePort() {
+  return new Promise((resolve, reject) => {
+    const probe = net.createServer();
+    probe.unref();
+    probe.on('error', reject);
+    probe.listen(0, '127.0.0.1', () => {
+      const { port } = probe.address();
+      probe.close(() => resolve(port));
+    });
+  });
+}
 
 function waitForEngine(attempts = 50) {
   return new Promise((resolve, reject) => {
@@ -25,8 +38,16 @@ function waitForEngine(attempts = 50) {
 }
 
 async function openWorkspace() {
-  engineProcess = spawn('python3', ['app_server.py'], {
-    cwd: repositoryRoot,
+  const port = await findFreePort();
+  serverUrl = `http://127.0.0.1:${port}`;
+  const enginePath = app.isPackaged
+    ? path.join(process.resourcesPath, 'engine', 'piping-iso-engine')
+    : 'python3';
+  const engineArgs = app.isPackaged
+    ? ['--data-dir', app.getPath('userData'), '--port', String(port)]
+    : ['app_server.py', '--data-dir', app.getPath('userData'), '--port', String(port)];
+  engineProcess = spawn(enginePath, engineArgs, {
+    cwd: app.isPackaged ? path.dirname(enginePath) : repositoryRoot,
     stdio: 'ignore',
   });
   engineProcess.on('error', async (error) => {

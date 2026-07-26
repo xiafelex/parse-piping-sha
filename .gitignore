@@ -9,3 +9,5 @@ tmp/
 *.png
 app_data/
 apps/desktop/node_modules/
+apps/desktop/build/
+apps/desktop/dist/
