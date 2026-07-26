@@ -19,6 +19,8 @@ Use `--all-pages` to render every logical ISO Sheet in a multi-page SHA.
 Add `--png` when Node.js and Playwright are installed. See
 [`SHA_ISO_AI_HANDOFF.md`](SHA_ISO_AI_HANDOFF.md) for the full workflow and the
 prompt to give another AI. [`SKILL.md`](SKILL.md) is the reusable Codex skill.
+See [`APP_DEVELOPMENT_PLAN.md`](APP_DEVELOPMENT_PLAN.md) for the proposed
+desktop product architecture, phases, data model, and acceptance criteria.
 
 ## Tools
 
