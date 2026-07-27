@@ -1525,33 +1525,38 @@ def render(
         int(record["graphic_ref"]): record for record in sheet_text_records
     }
     for ref, label in process_note_by_ref.items():
-        code = all_text_by_ref.get(ref + 1)
-        if code is None:
-            continue
-        code_text = str(code["text"]).strip()
-        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9._/-]{1,24}", code_text):
-            continue
-        label_x, label_y = float(label["x"]) * SHEET_UNIT, float(label["y"]) * SHEET_UNIT
-        code_x, code_y = float(code["x"]) * SHEET_UNIT, float(code["y"]) * SHEET_UNIT
-        candidates = [
-            frame
-            for frame in sheet_rectangles(alternate_segments)
-            if frame[0] - 8 <= label_x <= frame[2] + 8
-            and frame[1] - 8 <= label_y <= frame[3] + 8
-            and frame[0] - 8 <= code_x <= frame[2] + 8
-            and frame[1] - 8 <= code_y <= frame[3] + 8
-            and frame[2] - frame[0] <= 1_000
-            and frame[3] - frame[1] <= 500
-        ]
-        if not candidates:
-            continue
-        frame = min(candidates, key=lambda item: (item[2] - item[0]) * (item[3] - item[1]))
-        for paired_ref in (ref, ref + 1):
-            current = process_note_frames_by_ref.get(paired_ref)
-            if current is None or (frame[2] - frame[0]) * (frame[3] - frame[1]) < (
-                (current[2] - current[0]) * (current[3] - current[1])
-            ):
-                process_note_frames_by_ref[paired_ref] = frame
+        # Most samples store ``INSUL:`` immediately before the code.  LS
+        # Sheet6 also proves the inverse local sequence: code, one intervening
+        # Shape2D object, then ``INSUL:``.  Keep the reference offsets explicit
+        # and require the same closed frame for either order.
+        for code_ref in (ref + 1, ref - 2):
+            code = all_text_by_ref.get(code_ref)
+            if code is None:
+                continue
+            code_text = str(code["text"]).strip()
+            if not re.fullmatch(r"[A-Za-z][A-Za-z0-9._/-]{1,24}", code_text):
+                continue
+            label_x, label_y = float(label["x"]) * SHEET_UNIT, float(label["y"]) * SHEET_UNIT
+            code_x, code_y = float(code["x"]) * SHEET_UNIT, float(code["y"]) * SHEET_UNIT
+            candidates = [
+                frame
+                for frame in sheet_rectangles(alternate_segments)
+                if frame[0] - 8 <= label_x <= frame[2] + 8
+                and frame[1] - 8 <= label_y <= frame[3] + 8
+                and frame[0] - 8 <= code_x <= frame[2] + 8
+                and frame[1] - 8 <= code_y <= frame[3] + 8
+                and frame[2] - frame[0] <= 1_000
+                and frame[3] - frame[1] <= 500
+            ]
+            if not candidates:
+                continue
+            frame = min(candidates, key=lambda item: (item[2] - item[0]) * (item[3] - item[1]))
+            for paired_ref in (ref, code_ref):
+                current = process_note_frames_by_ref.get(paired_ref)
+                if current is None or (frame[2] - frame[0]) * (frame[3] - frame[1]) < (
+                    (current[2] - current[0]) * (current[3] - current[1])
+                ):
+                    process_note_frames_by_ref[paired_ref] = frame
     starred_right_title_labels = {
         str(record["text"]).strip()[1:-1]
         for record in sheet_text_records
