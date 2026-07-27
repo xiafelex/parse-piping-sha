@@ -27,15 +27,16 @@ def main() -> None:
     parser.add_argument(
         "--exclude-selection",
         type=Path,
+        action="append",
         help="Existing selection.json whose drawings must not be selected again.",
     )
     args = parser.parse_args()
 
     manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
     excluded = set()
-    if args.exclude_selection:
-        previous = json.loads(args.exclude_selection.read_text(encoding="utf-8"))
-        excluded = {str(item["drawing"]) for item in previous["selected_drawings"]}
+    for selection_path in args.exclude_selection or []:
+        previous = json.loads(selection_path.read_text(encoding="utf-8"))
+        excluded.update(str(item["drawing"]) for item in previous["selected_drawings"])
     choices = []
     for drawing in manifest["drawings"]:
         if drawing["drawing"] in excluded:
