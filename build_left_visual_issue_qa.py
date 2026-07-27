@@ -83,7 +83,12 @@ def main() -> None:
 
     chosen = []
     by_drawing: dict[str, int] = {}
-    for candidate in sorted(candidates, reverse=True):
+    # Scores can tie across uniform page areas.  Sort only on stable scalar
+    # fields so Python never falls through to comparing the drawing/page dicts.
+    for candidate in sorted(
+        candidates,
+        key=lambda item: (-item[0], item[1], str(item[2]["sheet_stream"]), item[3]),
+    ):
         _, drawing, _, box = candidate
         if by_drawing.get(drawing, 0) >= args.per_drawing:
             continue
@@ -107,7 +112,12 @@ def main() -> None:
         draw = ImageDraw.Draw(board)
         for row, (score, drawing, page, box) in enumerate(batch):
             y = row * 330
-            with Image.open(Path(page["sha_svg"]).with_suffix(".png")) as source:
+            sha_path = (
+                args.sha_png_root / drawing / f"{page['sheet_stream']}.png"
+                if args.sha_png_root
+                else Path(page["sha_svg"]).with_suffix(".png")
+            )
+            with Image.open(sha_path) as source:
                 sha = source.convert("RGB")
             with Image.open(Path(page["pdf_png"])) as source:
                 pdf = source.convert("RGB").resize(sha.size, Image.Resampling.LANCZOS)
