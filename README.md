@@ -25,6 +25,40 @@ The collaborative samples, SHA-derived artifacts, and Chinese research history
 are in [`research/README.md`](research/README.md) and
 [`docs/RESEARCH_JOURNEY_CN.md`](docs/RESEARCH_JOURNEY_CN.md).
 
+## 2026-07 reconstruction handoff
+
+The plain-language Chinese project review, including the SHA architecture,
+PCF/IDF/SHA boundaries, staged render examples, current quality coverage, weld
+writeback experiments, and the follow-up roadmap, is available at
+[`docs/管道SHA图纸还原过程总结.pdf`](docs/管道SHA图纸还原过程总结.pdf).
+
+The accompanying evidence ledger is
+[`SHA_PDF_FIDELITY_AUDIT.md`](SHA_PDF_FIDELITY_AUDIT.md). It records the strict
+rule that PDF is visual QA only, never a geometry or text source.
+
+### PCF weld writeback experiment
+
+The experimental weld workflow keeps PCF as the engineering-number source and
+uses SHA only for verified paper-space placement:
+
+1. `number_pcf_welds.py`: assigns or maps PCF weld identifiers to SHA UCI/dot evidence.
+2. `plan_pcf_weld_lanes.py`: plans lane side and ordering from PCF straight-pipe topology.
+3. `inject_sha_weld_callouts.py`: writes diamonds, labels, and leaders into a SHA copy.
+4. `verify_sha_weld_callouts.py`: checks that every leader starts at its source SHA point and that every diamond closes.
+5. `render_sha_matched_pcf_folder.py`: renders SHA-derived pages for matched PCF/SHA pairs.
+
+`render_pcf_weld_iso.py` is intentionally a PCF-only diagnostic renderer. It is
+not evidence of SHA-compatible output and must not be presented as the SHA
+writeback result.
+
+### Rebuilding the process PDF
+
+`generate_sha_reconstruction_story.mjs` creates the Chinese review PDF from
+the project-local `output/` examples. It needs Node.js plus Playwright and the
+same generated image paths used in the original analysis workspace. The final
+PDF is versioned in `docs/` so another machine can read the current result even
+without the original samples.
+
 ## First-stage local workspace
 
 The repository now includes a local-first import and analysis workspace. It

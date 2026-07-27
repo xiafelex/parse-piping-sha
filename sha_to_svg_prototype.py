@@ -17,6 +17,7 @@ import struct
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 from pathlib import Path
+from statistics import median
 
 from analyze_iso_split import dynamic_graphics, read_sha_streams
 from analyze_sha_pages import logical_page, text_objects
@@ -41,11 +42,70 @@ def psm_bbox(psm: bytes, graphic_ref: int) -> tuple[int, int, int, int] | None:
     return None
 
 
+def psm_bboxes(psm: bytes, graphic_ref: int) -> list[tuple[int, int, int, int]]:
+    """Return every valid PSM envelope for one graphic reference.
+
+    A few SHA files repeat a reference in PSMcluster0.  The first envelope can
+    be a page/container record while a later one is the actual text extent, so
+    consumers with an independent SHA anchor must be able to choose between
+    all source candidates.
+    """
+
+    boxes: list[tuple[int, int, int, int]] = []
+    needle = struct.pack("<I", graphic_ref)
+    for match in re.finditer(re.escape(needle), psm):
+        offset = match.start() + 4
+        if offset + 10 > len(psm):
+            continue
+        left, bottom, right, top, _ = struct.unpack_from("<5H", psm, offset)
+        if left < right <= PAGE_WIDTH and bottom < top <= PAGE_HEIGHT:
+            box = (left, bottom, right, top)
+            if box not in boxes:
+                boxes.append(box)
+    return boxes
+
+
 def svg_y(y: float) -> float:
     return PAGE_HEIGHT - y
 
 
-def sheet_viewbox(data: bytes) -> tuple[float, float, float, float]:
+def point_segment_distance(
+    px: float, py: float, x1: float, y1: float, x2: float, y2: float
+) -> float:
+    """Return the shortest page-unit distance from a point to a segment."""
+
+    dx, dy = x2 - x1, y2 - y1
+    length_squared = dx * dx + dy * dy
+    if length_squared == 0:
+        return math.hypot(px - x1, py - y1)
+    projection = ((px - x1) * dx + (py - y1) * dy) / length_squared
+    projection = max(0.0, min(1.0, projection))
+    return math.hypot(px - (x1 + projection * dx), py - (y1 + projection * dy))
+
+
+def rotated_text_extent(width: float, height: float, angle_degrees: float) -> tuple[float, float]:
+    """Recover local glyph height and text length from a rotated PSM envelope.
+
+    PSM stores an axis-aligned envelope. For a rotated label its width/height
+    include each other's projection, so using the envelope height as a font
+    size makes diagonal annotations much too large.
+    """
+
+    radians = math.radians(angle_degrees)
+    cosine, sine = abs(math.cos(radians)), abs(math.sin(radians))
+    determinant = cosine * cosine - sine * sine
+    if abs(determinant) > 0.08:
+        text_length = (width * cosine - height * sine) / determinant
+        glyph_height = (height * cosine - width * sine) / determinant
+        if text_length > 0 and glyph_height > 0:
+            return max(34.0, glyph_height), max(34.0, text_length)
+    # At about 45 degrees the envelope projection matrix is singular. Retain
+    # the previous conservative fallback until a local StyleCluster metric is
+    # decoded for that record family.
+    return max(34.0, min(width, height)), max(width, height)
+
+
+def declared_sheet_viewbox(data: bytes) -> tuple[float, float, float, float] | None:
     """Read the visible sheet extent declared in the Shape2D sheet header.
 
     Shape2D stores an ISO page in a square workspace.  The physical A1 page
@@ -55,10 +115,32 @@ def sheet_viewbox(data: bytes) -> tuple[float, float, float, float]:
     """
 
     values = [struct.unpack_from("<d", data, offset)[0] for offset in range(0, min(len(data) - 8, 240))]
-    width = max((value for value in values if 0.82 <= value <= 0.86), default=PAGE_WIDTH / SHEET_UNIT)
-    height = max((value for value in values if 0.58 <= value <= 0.62), default=PAGE_HEIGHT / SHEET_UNIT)
-    y_max = max((value for value in values if 0.68 <= value <= 0.73), default=PAGE_HEIGHT / SHEET_UNIT)
+    widths = [value for value in values if 0.82 <= value <= 0.86]
+    heights = [value for value in values if 0.58 <= value <= 0.62]
+    y_maxes = [value for value in values if 0.68 <= value <= 0.73]
+    if not widths or not heights or not y_maxes:
+        return None
+    width = max(widths)
+    height = max(heights)
+    y_max = max(y_maxes)
     return 0.0, max(0.0, y_max - height) * SHEET_UNIT, width * SHEET_UNIT, height * SHEET_UNIT
+
+
+def sheet_viewbox(
+    data: bytes,
+    inherited_viewbox: tuple[float, float, float, float] | None = None,
+) -> tuple[float, float, float, float]:
+    """Return a physical ISO viewbox, inheriting a sibling's declared page.
+
+    Some later Sheet streams omit the physical A1 header values entirely even
+    though their graphics retain the same normalized page coordinate system.
+    The shared Sheet6 header is part of the same SHA source and is therefore a
+    valid layout declaration; only use it when the selected stream has no
+    declaration of its own. Falling back to the square workspace otherwise
+    visibly shrinks the full ISO into the upper-left corner.
+    """
+
+    return declared_sheet_viewbox(data) or inherited_viewbox or (0.0, 0.0, PAGE_WIDTH, PAGE_HEIGHT)
 
 
 def line_segments(data: bytes) -> list[tuple[float, float, float, float, int, int]]:
@@ -104,6 +186,71 @@ def line_segments(data: bytes) -> list[tuple[float, float, float, float, int, in
     return list(unique.values())
 
 
+def line_style_widths(style_data: bytes) -> dict[int, float]:
+    """Decode observed StyleCluster line-weight records.
+
+    The records identified by the ``0x002E, 0x0036`` header store the Shape2D
+    line style id at byte 20 and a page-normalized line width at byte 40.  A
+    Sheet two-point primitive uses that same id in its ``style_ref`` field.
+    Keep this deliberately narrow: it restores the proven width relation
+    without assigning unsupported semantics to the remaining StyleCluster
+    fields (colour and linetype are still separate unresolved records).
+    """
+
+    widths: dict[int, float] = {}
+    signature = b"\x2e\x00\x36\x00"
+    for match in re.finditer(re.escape(signature), style_data):
+        start = match.start()
+        if start + 48 > len(style_data):
+            continue
+        style_ref = struct.unpack_from("<I", style_data, start + 20)[0]
+        width_ratio = struct.unpack_from("<d", style_data, start + 40)[0]
+        if 1 <= style_ref <= 1000 and 0.00001 <= width_ratio <= 0.01:
+            widths[style_ref] = width_ratio * SHEET_UNIT
+    return widths
+
+
+def sheet_line_widths(data: bytes, style_data: bytes) -> dict[int, float]:
+    """Return SHA page-unit stroke widths keyed by Sheet child primitive id."""
+
+    style_widths = line_style_widths(style_data)
+    result: dict[int, float] = {}
+    for start in range(0, len(data) - 46, 2):
+        _, zero_a, parent_ref, zero_b, zero_c, style_ref, zero_d = struct.unpack_from(
+            "<7H", data, start
+        )
+        if zero_a or zero_b or zero_c or zero_d:
+            continue
+        if not (1100 <= parent_ref <= 1500 and style_ref in style_widths):
+            continue
+        child_ref = struct.unpack_from("<I", data, start - 4)[0] if start >= 4 else 0
+        result[child_ref] = style_widths[style_ref]
+    return result
+
+
+def template_line_widths(data: bytes, style_data: bytes) -> dict[int, float]:
+    """Return widths for the observed ``0x18/0x32`` Sheet line record family.
+
+    Later physical ISO sheets use this family extensively for page geometry,
+    dimensions and component strokes. Its child primitive id is at byte 6 and
+    its 16-bit style reference is at byte 20; both are directly observable in
+    the source record and use the same StyleCluster width table as Sheet6.
+    """
+
+    style_widths = line_style_widths(style_data)
+    result: dict[int, float] = {}
+    signature = b"\x18\x00\x32\x00\x00\x00"
+    for match in re.finditer(re.escape(signature), data):
+        start = match.start()
+        if start + 56 > len(data):
+            continue
+        child_ref = struct.unpack_from("<I", data, start + 6)[0]
+        style_ref = struct.unpack_from("<H", data, start + 20)[0]
+        if style_ref in style_widths:
+            result[child_ref] = style_widths[style_ref]
+    return result
+
+
 def composite_arcs(data: bytes) -> dict[int, tuple[float, float, float, float]]:
     """Read type-6 child primitives and their Shape2D page-space bounding boxes."""
 
@@ -147,7 +294,21 @@ def composite_segments(data: bytes) -> list[tuple[float, float, float, float, in
             )
             if primitive_type != 5 or (left == right and bottom == top):
                 continue
-            segments.append((left / 2, bottom / 2, right / 2, top / 2, parent_ref, child_ref))
+            # Composite endpoints are stored at twice the page-coordinate
+            # resolution, unlike the normalized float coordinates used by
+            # ordinary Sheet segments. Convert them all the way back to the
+            # renderer's normalized Sheet space before SVG multiplies by
+            # SHEET_UNIT.
+            segments.append(
+                (
+                    left / (2 * SHEET_UNIT),
+                    bottom / (2 * SHEET_UNIT),
+                    right / (2 * SHEET_UNIT),
+                    top / (2 * SHEET_UNIT),
+                    parent_ref,
+                    child_ref,
+                )
+            )
     return segments
 
 
@@ -160,6 +321,14 @@ def psm_ellipses(data: bytes, psm: bytes) -> list[tuple[int, tuple[int, int, int
         ref = struct.unpack_from("<I", data, match.start() + 6)[0]
         bbox = psm_bbox(psm, ref)
         if bbox is not None:
+            left, bottom, right, top = bbox
+            # The 59/2B signature is also used by page/layout containers.
+            # Their PSM envelopes can span thousands of page units and are
+            # not drawn ellipses.  Actual ISO instrument/connection symbols
+            # are local objects; rendering the containers creates spurious
+            # page-sized circles absent from the source ISO.
+            if right - left > 1000 or top - bottom > 1000:
+                continue
             ellipses.append((ref, bbox))
     return ellipses
 
@@ -232,6 +401,28 @@ def template_line_segments(data: bytes) -> list[tuple[float, float, float, float
     return segments
 
 
+def template_line_object_groups(data: bytes) -> dict[int, int]:
+    """Return validated local object groups for ``18/32`` graphic refs.
+
+    A subset of later-Sheet line graphics has an adjacent ``0x13/0xAC``
+    relation record.  Its graphic reference at byte 10 and local group id at
+    byte 14 are both 32-bit values.  The relation is provenance only: it does
+    not encode visibility and must not be used to suppress lines.
+    """
+
+    groups: dict[int, int] = {}
+    signature = b"\x13\x00\xAC\x00"
+    for match in re.finditer(re.escape(signature), data):
+        start = match.start()
+        if start + 18 > len(data):
+            continue
+        graphic_ref = struct.unpack_from("<I", data, start + 10)[0]
+        group_ref = struct.unpack_from("<I", data, start + 14)[0]
+        if 1 <= graphic_ref <= 0xFFFF and 1 <= group_ref <= 0xFFFF:
+            groups[graphic_ref] = group_ref
+    return groups
+
+
 def template_images(streams: dict[str, bytes]) -> list[dict[str, object]]:
     """Read the two BMP template image instances stored in SHA JSite streams."""
 
@@ -270,11 +461,25 @@ def template_text_records(data: bytes, psm: bytes) -> list[dict[str, object]]:
     for record in text_records(data):
         text = str(record["text"]).strip()
         ref = int(record["graphic_ref"])
-        bbox = psm_bbox(psm, ref)
-        if not (0x900 <= ref <= 0x1200) or bbox is None or "<?xml" in text:
+        if not (0x900 <= ref <= 0x1200) or "<?xml" in text:
             continue
-        left, bottom, right, top = bbox
-        if not text or len(text) > 80 or right - left > 1400 or top - bottom > 240:
+        # Some template refs occur repeatedly in PSMcluster0. The first match
+        # can be a page/container envelope, while a later record is the small
+        # glyph extent. Use the direct Sheet text anchor to choose only among
+        # plausible title-block glyph boxes.
+        candidates = [
+            box
+            for box in psm_bboxes(psm, ref)
+            if box[2] - box[0] <= 1400 and box[3] - box[1] <= 240
+        ]
+        if not candidates:
+            continue
+        x, y = float(record["x"]) * SHEET_UNIT, float(record["y"]) * SHEET_UNIT
+        bbox = min(
+            candidates,
+            key=lambda box: abs(x - box[0]) + 3 * abs(y - box[1]),
+        )
+        if not text or len(text) > 80:
             continue
         key = (ref, text)
         if key not in seen:
@@ -445,12 +650,22 @@ def template_unicode_labels(data: bytes, psm: bytes, style_data: bytes) -> list[
         candidates = []
         for ref_offset in range(max(0, offset - 64), offset, 2):
             graphic_ref = struct.unpack_from("<I", data, ref_offset)[0]
-            bbox = psm_bbox(psm, graphic_ref)
-            if bbox is not None:
+            for bbox in psm_bboxes(psm, graphic_ref):
                 left, bottom, right, top = bbox
                 score = abs(x * SHEET_UNIT - left) + 3 * abs(y * SHEET_UNIT - top)
                 candidates.append((score, graphic_ref, bbox))
         _, graphic_ref, bbox = min(candidates, default=(float("inf"), 0, None), key=lambda item: item[0])
+        if bbox is not None:
+            left, bottom, right, top = bbox
+            expected_height = size_ratio * SHEET_UNIT
+            # A nearby PSM ref can be a title-block/container object rather
+            # than this UTF-16 label. Accept its envelope only when it is
+            # plausible for the decoded SimHei glyph metric.
+            if (
+                not 0.45 * expected_height <= top - bottom <= 4.0 * expected_height
+                or right - left > max(1200, len(text) * expected_height * 3.0)
+            ):
+                graphic_ref, bbox = 0, None
         labels.append(
             {
                 "text": text,
@@ -496,6 +711,17 @@ def text_records(data: bytes) -> list[dict[str, object]]:
     for match in re.finditer(rb"(?:(?:[\x20-\x7e]\x00){1,})", data):
         if match.start() < 24 or match.end() + 32 > len(data):
             continue
+        # Shape2D stores a uint16 UTF-16 character count immediately before
+        # some strings. Counts 32..126 look like one printable UTF-16 glyph
+        # (for example 0x21 appears as "!") and can be swallowed by the
+        # printable-text scan. Recover the real text start before resolving
+        # the adjacent graphic/style references.
+        text_start = match.start()
+        decoded = match.group().decode("utf-16le")
+        declared_count = struct.unpack_from("<H", data, match.start())[0]
+        if declared_count == len(decoded) - 1:
+            text_start += 2
+            decoded = decoded[1:]
         x, y, direction_x, direction_y = struct.unpack_from("<dddd", data, match.end())
         # Some template strings carry property pairs before their transform.
         if abs(x) + abs(y) < 1e-100:
@@ -512,9 +738,9 @@ def text_records(data: bytes) -> list[dict[str, object]]:
             continue
         records.append(
             {
-                "text": match.group().decode("utf-16le").strip(),
-                "graphic_ref": struct.unpack_from("<I", data, match.start() - 24)[0],
-                "style_ref": struct.unpack_from("<I", data, match.start() - 16)[0],
+                "text": decoded.strip(),
+                "graphic_ref": struct.unpack_from("<I", data, text_start - 24)[0],
+                "style_ref": struct.unpack_from("<I", data, text_start - 16)[0],
                 "x": x,
                 "y": y,
                 "direction_x": direction_x,
@@ -560,6 +786,124 @@ def sheet_rectangles(
     return sorted(rectangles)
 
 
+def rectangles_by_parent_ref(
+    segments: list[tuple[float, float, float, float, int, int]]
+) -> dict[int, tuple[int, int, int, int]]:
+    """Recover closed axis-aligned rectangles together with their SHA parent ref."""
+
+    grouped: dict[int, list[tuple[int, int, int, int]]] = defaultdict(list)
+    for x1, y1, x2, y2, parent_ref, _ in segments:
+        ax, ay, bx, by = (
+            round(x1 * SHEET_UNIT),
+            round(y1 * SHEET_UNIT),
+            round(x2 * SHEET_UNIT),
+            round(y2 * SHEET_UNIT),
+        )
+        if (ay == by and ax != bx) or (ax == bx and ay != by):
+            grouped[parent_ref].append((ax, ay, bx, by))
+    rectangles: dict[int, tuple[int, int, int, int]] = {}
+    for parent_ref, lines in grouped.items():
+        horizontal = [line for line in lines if line[1] == line[3]]
+        vertical = [line for line in lines if line[0] == line[2]]
+        if len(horizontal) != 2 or len(vertical) != 2:
+            continue
+        xs = sorted({line[0] for line in vertical})
+        ys = sorted({line[1] for line in horizontal})
+        if len(xs) != 2 or len(ys) != 2:
+            continue
+        left, right = xs
+        bottom, top = ys
+        if not (40 <= right - left <= 1500 and 40 <= top - bottom <= 500):
+            continue
+        required = {
+            tuple(sorted(((left, bottom), (right, bottom)))),
+            tuple(sorted(((left, top), (right, top)))),
+            tuple(sorted(((left, bottom), (left, top)))),
+            tuple(sorted(((right, bottom), (right, top)))),
+        }
+        actual = {
+            tuple(sorted(((line[0], line[1]), (line[2], line[3]))))
+            for line in lines
+        }
+        if required <= actual:
+            rectangles[parent_ref] = (left, bottom, right, top)
+    return rectangles
+
+
+def rectangles_by_text_style_sequence(
+    segments: list[tuple[float, float, float, float, int, int]]
+) -> dict[int, tuple[int, int, int, int]]:
+    """Recover frames whose four edge styles immediately follow a text ref.
+
+    Some support/component callouts use a different Sheet relationship from
+    marker boxes: their four line records share a parent graphic, while their
+    *style* references are ``text_ref + 1`` through ``text_ref + 4``.  This is
+    a direct SHA sequence, not a geometric proximity inference.
+    """
+
+    grouped: dict[int, list[tuple[int, int, int, int, int]]] = defaultdict(list)
+    for x1, y1, x2, y2, parent_ref, style_ref in segments:
+        grouped[parent_ref].append(
+            (
+                round(x1 * SHEET_UNIT),
+                round(y1 * SHEET_UNIT),
+                round(x2 * SHEET_UNIT),
+                round(y2 * SHEET_UNIT),
+                style_ref,
+            )
+        )
+    frames: dict[int, tuple[int, int, int, int]] = {}
+    for lines in grouped.values():
+        # Composite child coordinates are quantised, so nominally horizontal
+        # and vertical frame edges can differ by one or two page units.
+        horizontal = [line for line in lines if abs(line[1] - line[3]) <= 2 and line[0] != line[2]]
+        vertical = [line for line in lines if abs(line[0] - line[2]) <= 2 and line[1] != line[3]]
+        # A single SHA parent can carry several adjacent frames, so inspect
+        # every horizontal-pair/vertical-pair combination rather than
+        # requiring the parent to contain exactly four lines.
+        for lower in horizontal:
+            left, right = sorted((lower[0], lower[2]))
+            bottom = lower[1]
+            for upper in horizontal:
+                upper_left, upper_right = sorted((upper[0], upper[2]))
+                if (
+                    upper is lower
+                    or abs(upper_left - left) > 2
+                    or abs(upper_right - right) > 2
+                    or upper[1] <= bottom
+                ):
+                    continue
+                top = upper[1]
+                if not (40 <= right - left <= 1500 and 40 <= top - bottom <= 500):
+                    continue
+                left_edge = next(
+                    (
+                        line
+                        for line in vertical
+                        if abs(line[0] - left) <= 2
+                        and abs(min(line[1], line[3]) - bottom) <= 2
+                        and abs(max(line[1], line[3]) - top) <= 2
+                    ),
+                    None,
+                )
+                right_edge = next(
+                    (
+                        line
+                        for line in vertical
+                        if abs(line[0] - right) <= 2
+                        and abs(min(line[1], line[3]) - bottom) <= 2
+                        and abs(max(line[1], line[3]) - top) <= 2
+                    ),
+                    None,
+                )
+                if left_edge is None or right_edge is None:
+                    continue
+                styles = sorted((lower[4], upper[4], left_edge[4], right_edge[4]))
+                if styles == list(range(styles[0], styles[0] + 4)):
+                    frames[styles[0] - 1] = (left, bottom, right, top)
+    return frames
+
+
 def style_fallbacks(data: bytes, psm: bytes) -> dict[int, tuple[float, float, float, float]]:
     """Learn text placement offsets from SHA objects that have a PSM extent.
 
@@ -586,6 +930,59 @@ def style_fallbacks(data: bytes, psm: bytes) -> dict[int, tuple[float, float, fl
     }
 
 
+def bounded_style_fallbacks(data: bytes, psm: bytes) -> dict[int, tuple[tuple[float, float, float, float], int]]:
+    """Return local text metrics supported by ordinary, non-container PSM boxes.
+
+    A short real Sheet label can occasionally resolve to a page-level PSM
+    container.  Only use a same-style replacement when several peer labels on
+    that *same Sheet* have normal glyph-height envelopes; this excludes binary
+    false positives and prevents a page-level container from poisoning the
+    recovered metrics.
+    """
+
+    samples: dict[int, list[tuple[float, float, float, float]]] = defaultdict(list)
+    for record in text_records(data):
+        text = str(record["text"]).strip()
+        x, y = float(record["x"]), float(record["y"])
+        bbox = psm_bbox(psm, int(record["graphic_ref"]))
+        if not text or bbox is None or not (0 <= x <= 1 and 0 <= y <= PAGE_HEIGHT / SHEET_UNIT):
+            continue
+        left, bottom, right, top = bbox
+        glyph_height = top - bottom
+        if not 30 <= glyph_height <= 320:
+            continue
+        samples[int(record["style_ref"])].append(
+            (left - x * SHEET_UNIT, bottom - y * SHEET_UNIT, glyph_height, (right - left) / max(1, len(text)))
+        )
+    return {
+        style: (tuple(median(value[index] for value in values) for index in range(4)), len(values))
+        for style, values in samples.items()
+    }
+
+
+def merged_style_fallbacks(sheets: dict[str, bytes], psm: bytes) -> dict[int, tuple[float, float, float, float]]:
+    merged: dict[int, list[tuple[float, float, float, float]]] = defaultdict(list)
+    for data in sheets.values():
+        for style, values in style_fallbacks(data, psm).items():
+            merged[style].append(values)
+        for record in text_records(data):
+            style = int(record["style_ref"])
+            text = str(record["text"]).strip()
+            x, y = float(record["x"]), float(record["y"])
+            bbox = psm_bbox(psm, int(record["graphic_ref"]))
+            if not text or bbox is None or not (0 <= x <= 1 and 0 <= y <= PAGE_HEIGHT / SHEET_UNIT):
+                continue
+            left, bottom, right, top = bbox
+            merged[style].append(
+                (left - x * SHEET_UNIT, bottom - y * SHEET_UNIT, top - bottom, (right - left) / max(1, len(text)))
+            )
+    return {
+        style: tuple(median(value[index] for value in samples) for index in range(4))
+        for style, samples in merged.items()
+        if samples
+    }
+
+
 def render(
     sha_path: Path,
     output_path: Path,
@@ -593,6 +990,7 @@ def render(
     debug_boxes: bool,
     manifest_path: Path | None,
     component_layer: Path | None,
+    sheet_stream: str | None = None,
 ) -> None:
     streams = read_sha_streams(sha_path)
     sheets = {
@@ -600,22 +998,35 @@ def render(
         for name, data in streams.items()
         if re.fullmatch(r"Sheet\d+", name) and len(data) > 1024
     }
-    selected_name = next(
-        (
-            name
-            for name, data in sheets.items()
-            if logical_page(text_objects(data))
-            and logical_page(text_objects(data))[0] == wanted_page
-        ),
-        None,
-    )
+    if sheet_stream is not None:
+        if sheet_stream not in sheets:
+            raise ValueError(f"Sheet stream {sheet_stream!r} was not found in {sha_path.name}")
+        selected_name = sheet_stream
+    else:
+        selected_name = next(
+            (
+                name
+                for name, data in sheets.items()
+                if logical_page(text_objects(data))
+                and logical_page(text_objects(data))[0] == wanted_page
+            ),
+            None,
+        )
     if selected_name is None:
         raise ValueError(f"ISO page {wanted_page} was not found in {sha_path.name}")
 
     dynamic = dynamic_graphics(streams.get("Unclustered Dynamic Attributes", b""))
     psm = streams.get("PSMcluster0", b"")
     sheet = sheets[selected_name]
-    view_x, view_y, view_width, view_height = sheet_viewbox(sheet)
+    # Sheet6 carries the shared physical-page declaration in the supplied
+    # multi-sheet SHAs. A later Sheet may only contain local graphics records.
+    shared_viewbox = declared_sheet_viewbox(sheets.get("Sheet6", b""))
+    if shared_viewbox is None:
+        shared_viewbox = next(
+            (viewbox for data in sheets.values() if (viewbox := declared_sheet_viewbox(data)) is not None),
+            None,
+        )
+    view_x, view_y, view_width, view_height = sheet_viewbox(sheet, shared_viewbox)
     graphics: dict[int, list[str]] = defaultdict(list)
     for uci, records in dynamic.items():
         for record in records:
@@ -694,7 +1105,10 @@ def render(
             f'data-resource="JSite{int(image["resource_id"])}"/>'
         )
     if template_text:
-        elements.append('<g id="sha-template-text" fill="#17202a" font-family="monospace" text-rendering="geometricPrecision">')
+        # Template records use the same sans-serif StyleCluster family as the
+        # decoded static title labels.  Keep this separate from the ISO body,
+        # whose engineering annotations are an observed fixed-pitch family.
+        elements.append('<g id="sha-template-text" fill="#17202a" font-family="Arial, Helvetica, sans-serif" text-rendering="geometricPrecision">')
         for record in template_text:
             left, bottom, right, top = record["bbox"]
             height = max(36, top - bottom)
@@ -711,7 +1125,7 @@ def render(
             )
         elements.append("</g>")
     if revision_text or notes or anchor_labels or unicode_labels:
-        elements.append('<g id="sha-template-bound-text" fill="#17202a" font-family="monospace" text-rendering="geometricPrecision">')
+        elements.append('<g id="sha-template-bound-text" fill="#17202a" font-family="Arial, Helvetica, sans-serif" text-rendering="geometricPrecision">')
         for record in revision_text:
             x, y = float(record["x"]) * SHEET_UNIT, svg_y(float(record["y"]) * SHEET_UNIT)
             elements.append(
@@ -794,9 +1208,33 @@ def render(
     # Sheet6 uses both its ordinary two-point record and the 18/32 record
     # family.  The latter carries much of the detailed component geometry
     # (flanges, valves and instrument symbols), not only template graphics.
-    segments = line_segments(sheet) + template_line_segments(sheet) + composite_segments(sheet)
+    ordinary_segments = line_segments(sheet)
+    alternate_segments = template_line_segments(sheet)
+    composite = composite_segments(sheet)
+    segments = ordinary_segments + alternate_segments + composite
+    alternate_object_groups = template_line_object_groups(sheet)
+    style_data = streams.get("StyleCluster", b"")
+    sheet_line_width_by_child = sheet_line_widths(sheet, style_data)
+    sheet_line_width_by_child.update(template_line_widths(sheet, style_data))
     rectangles = sheet_rectangles(segments)
-    fallback_styles = style_fallbacks(sheet, psm)
+    rectangles_by_ref = rectangles_by_parent_ref(segments)
+    rectangles_by_text_ref = rectangles_by_text_style_sequence(segments)
+    composite_frames_by_text_ref = rectangles_by_text_style_sequence(composite)
+    # The 18/32 record family can carry an offset backing rectangle for a
+    # callout whose actual visible frame is already present in type-5
+    # composite children.  Both share ``text_ref + 5`` but only the composite
+    # sequence aligns to the direct Sheet text/PSM evidence.  Suppress those
+    # exact duplicate 18/32 frame edges, while retaining every other 18/32
+    # component/detail segment.
+    alternate_rectangle_parents = rectangles_by_parent_ref(alternate_segments)
+    duplicate_alternate_frame_edges = {
+        (parent_ref, child_ref)
+        for _, _, _, _, parent_ref, child_ref in alternate_segments
+        if parent_ref in alternate_rectangle_parents
+        and parent_ref - 5 in composite_frames_by_text_ref
+    }
+    fallback_styles = merged_style_fallbacks(sheets, psm)
+    local_bounded_styles = bounded_style_fallbacks(sheet, psm)
     ellipses = psm_ellipses(sheet, psm)
     ellipse_anchor_by_ref = ellipse_anchors(sheet)
     ellipse_primitive_anchor_by_ref = ellipse_primitive_anchors(sheet)
@@ -810,17 +1248,47 @@ def render(
                 anchor[1] - (bottom + top) / 2,
             ))
     vector_refs = {ref for *_, ref, child_ref in segments} | {child_ref for *_, ref, child_ref in segments}
+    def is_visible_connection_point(region: dict[str, object]) -> bool:
+        """Reject tiny PSM/UCI records that are not attached to visible geometry.
+
+        Shape2D also stores small non-drawing records in the UCI/PSM layers.
+        A visible weld/connection dot must be local to a decoded pipe or
+        component segment; otherwise it is not emitted as ISO geometry.
+        """
+
+        if not segments:
+            return False
+        left, bottom, right, top = region["bbox"]
+        ref = int(region["graphic_ref"])
+        center_x, center_y = ellipse_anchor_by_ref.get(
+            ref, ((left + right) / 2, (bottom + top) / 2)
+        )
+        return min(
+            point_segment_distance(
+                center_x,
+                center_y,
+                x1 * SHEET_UNIT,
+                y1 * SHEET_UNIT,
+                x2 * SHEET_UNIT,
+                y2 * SHEET_UNIT,
+            )
+            for x1, y1, x2, y2, _, _ in segments
+        ) <= 80
+
     connection_points = [
         region
         for region in uci_regions
         if int(region["graphic_ref"]) not in vector_refs
         and (region["bbox"][2] - region["bbox"][0]) <= 45
         and (region["bbox"][3] - region["bbox"][1]) <= 45
+        and is_visible_connection_point(region)
     ]
     arcs = composite_arcs(sheet)
     manifest_segments: list[dict[str, object]] = []
     elements.append('<g fill="none" stroke="#17202a" stroke-width="8" stroke-linecap="square" shape-rendering="geometricPrecision">')
     for x1, y1, x2, y2, ref, child_ref in segments:
+        if (ref, child_ref) in duplicate_alternate_frame_edges:
+            continue
         page_x1, page_y1 = x1 * SHEET_UNIT, y1 * SHEET_UNIT
         page_x2, page_y2 = x2 * SHEET_UNIT, y2 * SHEET_UNIT
         exact_ucis = set(uci_by_object_ref.get(ref, [])) | set(graphics.get(child_ref, []))
@@ -839,9 +1307,22 @@ def render(
                 "sheet_points_normalized": [[x1, y1], [x2, y2]],
                 "uci_candidates": ucis,
                 "mapping_basis": basis,
+                "stroke_width_page_units": round(sheet_line_width_by_child.get(child_ref, 8.0), 4),
+                "local_object_group": (
+                    f"0x{alternate_object_groups[ref]:04X}"
+                    if ref in alternate_object_groups
+                    else None
+                ),
             }
         )
         semantic = f' data-uci="{html.escape(uci)}"' if uci else ' data-layer="sheet-decoration"'
+        object_group = (
+            f' data-local-group="0x{alternate_object_groups[ref]:04X}"'
+            if ref in alternate_object_groups
+            else ""
+        )
+        width = sheet_line_width_by_child.get(child_ref)
+        width_attr = f' stroke-width="{width:.4f}"' if width is not None else ""
         if child_ref in arcs:
             left, bottom, right, top = arcs[child_ref]
             x_start, y_start = page_x1, svg_y(page_y1)
@@ -849,13 +1330,13 @@ def render(
             elements.append(
                 f'<path d="M {x_start:.1f} {y_start:.1f} A {(right - left) / 2:.1f} '
                 f'{(top - bottom) / 2:.1f} 0 0 1 {x_end:.1f} {y_end:.1f}" '
-                f'data-graphic="0x{ref:04X}" data-child="0x{child_ref:08X}"{semantic}/>'
+                f'data-graphic="0x{ref:04X}" data-child="0x{child_ref:08X}"{width_attr}{semantic}{object_group}/>'
             )
         else:
             elements.append(
                 f'<line x1="{page_x1:.1f}" y1="{svg_y(page_y1):.1f}" '
                 f'x2="{page_x2:.1f}" y2="{svg_y(page_y2):.1f}" '
-                f'data-graphic="0x{ref:04X}" data-child="0x{child_ref:08X}"{semantic}/>'
+                f'data-graphic="0x{ref:04X}" data-child="0x{child_ref:08X}"{width_attr}{semantic}{object_group}/>'
             )
     elements.append("</g>")
     if connection_points:
@@ -886,7 +1367,10 @@ def render(
                 f'data-mapping="{"sha-primitive-anchor-plus-psm-size" if ref in ellipse_primitive_anchor_by_ref else "sha-psm-envelope"}"/>'
             )
         elements.append("</g>")
-    elements.append('<g fill="#17202a" font-family="monospace" text-rendering="geometricPrecision">')
+    # StyleCluster names the engineering-annotation family as Courier New.
+    # A generic ``monospace`` maps to a browser-dependent substitute and
+    # changes the measured aspect ratio of dimensions and callout labels.
+    elements.append('<g fill="#17202a" font-family="\'Courier New\', Courier, monospace" text-rendering="geometricPrecision">')
     emitted_text: set[tuple[int, str]] = set()
     manifest_text: list[dict[str, object]] = []
     inferred_marker_boxes = 0
@@ -894,6 +1378,14 @@ def render(
         text = str(obj["text"]).strip()
         ref = int(obj["graphic_ref"])
         if not text or len(text) > 120 or (ref, text) in emitted_text:
+            continue
+        # Text records are scanned from a binary Sheet stream.  A few object
+        # headers can resemble very short text (for example ``{f``) and point
+        # at a page-sized PSM container.  They are not visible ISO labels.
+        # Imperial support/component labels legitimately include inch marks,
+        # for example ``SD010 1/2\"``.  Keep the filter for binary false
+        # positives but accept that printable ISO character.
+        if not re.fullmatch(r"[A-Za-z0-9 +./()_:%*,\"'&-]+", text):
             continue
         bbox = psm_bbox(psm, ref)
         emitted_text.add((ref, text))
@@ -905,7 +1397,7 @@ def render(
             # No PSM extent: derive its displayed baseline from peer records
             # using the same SHA StyleCluster reference.
             fallback = fallback_styles.get(int(obj["style_ref"]))
-            if fallback is None or not re.fullmatch(r"[A-Za-z0-9 +./()_-]+", text):
+            if fallback is None or not re.fullmatch(r"[A-Za-z0-9 +./()_\"-]+", text):
                 continue
             dx, dy, font_height, char_width = fallback
             left = float(obj["x"]) * SHEET_UNIT + dx
@@ -917,6 +1409,126 @@ def render(
             left, bottom, right, top = bbox
             height = max(42, top - bottom)
             width = right - left
+        anchor_x, anchor_y = float(obj["x"]) * SHEET_UNIT, float(obj["y"]) * SHEET_UNIT
+        # The physical A1 template occupies the SHA page's right-hand panel.
+        # Its direct Sheet records form a separate style cluster from the
+        # Courier New ISO body: for example RHO uses 0x95C4/0x9608 in the title
+        # block and BOM, versus 0x9609 on the pipe drawing. Use the SHA anchor
+        # region to retain that family even though the numeric style ids vary
+        # between pages.
+        in_template_panel = anchor_x >= SHEET_UNIT * 0.55
+        font_family_attr = ' font-family="Arial, Helvetica, sans-serif"' if in_template_panel else ""
+        marker_box = bool(BOXED_MARKER_RE.fullmatch(text))
+        boxed_reference_text = bool(re.fullmatch(r"(?:PS-N\d+-\d+|PANDA\d+-\d+-\d+)", text))
+        support_box_text = bool(re.fullmatch(r'SD\d+(?:\s+\d+(?:/\d+)?")?', text))
+        boxed_numeric_text = bool(re.fullmatch(r"\d{1,3}", text))
+        # A text ref can coincidentally precede four composite children.  The
+        # sequence is a frame relation only for observed boxed categories,
+        # never for free annotations such as ``SEE ISO``.
+        style_sequence_frame = (
+            rectangles_by_text_ref.get(ref)
+            if marker_box or boxed_reference_text or support_box_text or boxed_numeric_text
+            else None
+        )
+        if style_sequence_frame is not None:
+            direct_frame = style_sequence_frame
+        elif marker_box or boxed_reference_text:
+            direct_frame = rectangles_by_ref.get(ref + 5)
+        else:
+            direct_frame = None
+        frame_candidates = [
+            frame
+            for frame in rectangles
+            if frame[0] - 12 <= anchor_x <= frame[2] + 12
+            and frame[1] - 12 <= anchor_y <= frame[3] + 12
+        ] if marker_box or boxed_reference_text else []
+        if direct_frame is not None:
+            # The observed Sheet record sequence stores the closed-frame
+            # parent five ids after many marker/reference text graphics.
+            # Support labels alternatively encode their four edge styles as
+            # text-ref + 1..4. Both are direct SHA relationships and are
+            # stronger than overlap.
+            anchored_frame = direct_frame
+        elif frame_candidates:
+            # Nested/overlapping SHA frames are common around support tags.
+            # Selecting the first sorted rectangle can put a long PS-N label
+            # into its neighbouring short Sxx frame.  For a normal PSM glyph
+            # envelope, frame width is direct source evidence of the intended
+            # cell; use centre distance only for page/container envelopes.
+            psm_is_container = height > 320 or width > height * max(2, len(text)) * 2.2
+            if psm_is_container:
+                anchored_frame = min(
+                    frame_candidates,
+                    key=lambda frame: abs((frame[0] + frame[2]) / 2 - anchor_x)
+                    + abs((frame[1] + frame[3]) / 2 - anchor_y),
+                )
+            else:
+                anchored_frame = min(
+                    frame_candidates,
+                    key=lambda frame: (
+                        abs(math.log(max(0.01, (frame[2] - frame[0]) / max(width, 1.0)))),
+                        abs((frame[0] + frame[2]) / 2 - anchor_x)
+                        + abs((frame[1] + frame[3]) / 2 - anchor_y),
+                    ),
+                )
+        else:
+            anchored_frame = None
+        replaced_psm_container = False
+        replaced_psm_container_with_style = False
+        # Some boxed support/reference labels point at a page-scale PSM parent
+        # envelope rather than their own glyph extent. The Sheet text anchor
+        # and a directly decoded closed frame establish a local SHA-only
+        # replacement boundary, so preserve the label instead of rejecting it
+        # as a container false positive.
+        if anchored_frame is not None and (height > 320 or width > height * max(2, len(text)) * 2.2):
+            left, bottom, right, top = anchored_frame
+            height = top - bottom
+            width = right - left
+            replaced_psm_container = True
+        elif (
+            (height > 320 or width > height * max(2, len(text)) * 2.2)
+            # Restrict style reconstruction to the upper/right template area.
+            # Page-number/title-block fields and short BOM values frequently
+            # share the same PSM-container symptom but are not safe to infer.
+            and len(text) >= 8
+            and anchor_x >= view_x + view_width * 0.50
+            and anchor_y >= view_y + view_height * 0.15
+        ):
+            # A few BOM/template records share their text style with ordinary
+            # PSM-backed rows but point at a page-level parent envelope. The
+            # repeated same-style samples provide a SHA-derived baseline and
+            # glyph metrics, so recover this narrow case from the Sheet anchor
+            # instead of omitting a real title/field.
+            fallback = fallback_styles.get(int(obj["style_ref"]))
+            if fallback is not None:
+                dx, dy, font_height, char_width = fallback
+                left = anchor_x + dx
+                bottom = anchor_y + dy
+                height = max(36, font_height)
+                width = max(height * 0.7, char_width * len(text))
+                right, top = left + width, bottom + height
+                replaced_psm_container_with_style = True
+        elif (
+            # A few real dimension values and short ISO annotations use a
+            # page-level PSM parent. Their own Sheet text record is valid, and
+            # at least three local same-style glyph envelopes establish a
+            # bounded SHA-only replacement. Keep this narrower than the BOM
+            # recovery above so one-character binary false positives remain
+            # rejected by the short-token guard.
+            (height > 800 or width > height * max(2, len(text)) * 2.2)
+            and 3 <= len(text) <= 10
+            and ref <= 0xFFFF
+            and int(obj["style_ref"]) <= 0xFFFF
+            and int(obj["style_ref"]) in local_bounded_styles
+            and local_bounded_styles[int(obj["style_ref"])][1] >= 3
+        ):
+            (dx, dy, font_height, char_width), _ = local_bounded_styles[int(obj["style_ref"])]
+            left = anchor_x + dx
+            bottom = anchor_y + dy
+            height = max(36, font_height)
+            width = max(height * 0.7, char_width * len(text))
+            right, top = left + width, bottom + height
+            replaced_psm_container_with_style = True
         ellipse_adjustment = None
         for ellipse_bbox, dx, dy in ellipse_text_offsets:
             e_left, e_bottom, e_right, e_top = ellipse_bbox
@@ -926,6 +1538,12 @@ def render(
                 break
         angle = math.degrees(math.atan2(direction_y, direction_x))
         rotated = abs(direction_y) > 0.1 or abs(direction_x - 1) > 0.1
+        # Short Sheet tokens (dimension values, callout ids and binary false
+        # positives) cannot legitimately occupy a page-scale glyph envelope.
+        # This distinguishes real rotated dimensions from a PSM reference to
+        # their parent/component container.
+        if len(text) <= 10 and height > 800:
+            continue
         # Rotated/compound text uses a different transform record.  Until that
         # transform is decoded, suppress only implausible horizontal extents.
         if not rotated and (height > 320 or width > height * max(2, len(text)) * 2.2):
@@ -938,16 +1556,19 @@ def render(
             }
         )
         semantic = f' data-uci="{html.escape(",".join(text_ucis))}"' if text_ucis else ""
-        marker_box = bool(BOXED_MARKER_RE.fullmatch(text))
-        anchor_x, anchor_y = float(obj["x"]) * SHEET_UNIT, float(obj["y"]) * SHEET_UNIT
-        source_frame = next(
-            (
-                frame
-                for frame in rectangles
-                if frame[0] - 12 <= anchor_x <= frame[2] + 12 and frame[1] - 12 <= anchor_y <= frame[3] + 12
-            ),
-            None,
-        ) if re.fullmatch(r"[A-Za-z0-9 +./()_-]+", text) else None
+        insulation_code = bool(re.fullmatch(r"CI\d+", text))
+        # Only ISO component-marker codes are centred in an enclosing frame.
+        # Other labels can share a nearby leader/frame anchor while their PSM
+        # envelope is the actual location (e.g. INSUL:/CI30/CI50).
+        source_frame = anchored_frame
+        if insulation_code:
+            # CIxx text follows its immediately preceding local rectangle
+            # graphic, not the text-anchor coordinate system. This relation is
+            # directly observed in Sheet records (e.g. text 0x621 -> box 0x61B).
+            source_frame = next(
+                (rectangles_by_ref[ref - delta] for delta in range(1, 9) if ref - delta in rectangles_by_ref),
+                None,
+            )
         is_north_marker = text == "N" and int(obj["style_ref"]) == 0xE74
         uses_sha_text_anchor = (
             int(obj["style_ref"]) in {0x0585, 0x0586, 0x0897, 0x0E74}
@@ -976,7 +1597,7 @@ def render(
         # producer's per-object font hierarchy without decoding StyleCluster.
         if is_north_marker:
             elements.append(
-                f'<text x="{anchor_x:.1f}" y="{svg_y(anchor_y):.1f}" font-size="{max(72, min(112, height)):.1f}" '
+                f'<text x="{anchor_x:.1f}" y="{svg_y(anchor_y):.1f}" font-size="{max(72, min(112, height)):.1f}"{font_family_attr} '
                 f'data-layer="sha-north-label" data-style="0x{int(obj["style_ref"]):04X}">{html.escape(text)}</text>'
             )
         elif source_frame is not None:
@@ -985,12 +1606,17 @@ def render(
             # Keep the PSM glyph aspect ratio. The earlier prototype stretched
             # every code to the full cell width, making boxed callouts visibly
             # too wide compared with the SHA text object.
-            font_size = frame_height * 0.82
-            text_length = min(frame_width * 0.92, font_size * width / height)
+            if insulation_code:
+                # The PSM envelope holds real CIxx glyph metrics; only its
+                # position is in the adjacent rectangle's local space.
+                font_size, text_length = height, width
+            else:
+                font_size = frame_height * 0.82
+                text_length = min(frame_width * 0.92, font_size * width / height)
             elements.append(
                 f'<text x="{(frame_left + frame_right) / 2:.1f}" '
                 f'y="{svg_y((frame_bottom + frame_top) / 2):.1f}" '
-                f'font-size="{font_size:.1f}" textLength="{text_length:.1f}" '
+                f'font-size="{font_size:.1f}" textLength="{text_length:.1f}"{font_family_attr} '
                 f'text-anchor="middle" dominant-baseline="middle" lengthAdjust="spacingAndGlyphs"{semantic} '
                 f'data-style="0x{int(obj["style_ref"]):04X}" '
                 f'data-frame-mapping="sha-closed-rectangle">{html.escape(text)}</text>'
@@ -1002,23 +1628,25 @@ def render(
             # lower edge moves text left and downward.
             elements.append(
                 f'<text x="{anchor_x:.1f}" y="{svg_y(anchor_y):.1f}" '
-                f'font-size="{height}" textLength="{width}" lengthAdjust="spacingAndGlyphs"{semantic} '
+                f'font-size="{height}" textLength="{width}" lengthAdjust="spacingAndGlyphs"{font_family_attr}{semantic} '
                 f'data-style="0x{int(obj["style_ref"]):04X}" data-mapping="sha-text-anchor-plus-psm-size">'
                 f'{html.escape(text)}</text>'
             )
         elif rotated:
-            font_size, text_length = max(34, min(width, height)), max(width, height)
+            font_size, text_length = rotated_text_extent(width, height, angle)
             x, y = float(obj["x"]) * SHEET_UNIT, svg_y(float(obj["y"]) * SHEET_UNIT)
             elements.append(
-                f'<text x="{x:.1f}" y="{y:.1f}" font-size="{font_size}" '
-                f'textLength="{text_length}" lengthAdjust="spacingAndGlyphs" '
+                f'<text x="{x:.1f}" y="{y:.1f}" font-size="{font_size:.1f}"{font_family_attr} '
+                f'textLength="{text_length:.1f}" lengthAdjust="spacingAndGlyphs" '
                 f'transform="rotate({-angle:.3f} {x:.1f} {y:.1f})"{semantic} '
-                f'data-style="0x{int(obj["style_ref"]):04X}">{html.escape(text)}</text>'
+                f'data-style="0x{int(obj["style_ref"]):04X}" '
+                'data-mapping="sha-text-anchor-plus-rotated-psm-projection">'
+                f'{html.escape(text)}</text>'
             )
         else:
             elements.append(
                 f'<text x="{left}" y="{PAGE_HEIGHT - bottom}" '
-                f'font-size="{height}" textLength="{width}" '
+                f'font-size="{height}" textLength="{width}"{font_family_attr} '
                 f'lengthAdjust="spacingAndGlyphs" dominant-baseline="text-after-edge"{semantic} '
                 f'data-style="0x{int(obj["style_ref"]):04X}">'
                 f'{html.escape(text)}</text>'
@@ -1036,7 +1664,9 @@ def render(
                 "source_frame_page_units": list(source_frame) if source_frame else None,
                 "ellipse_anchor_adjustment_page_units": ellipse_adjustment,
                 "position_mapping": (
-                    "sha-text-anchor-plus-psm-size" if uses_sha_text_anchor
+                    "sha-closed-frame-replaces-psm-container" if replaced_psm_container
+                    else "sha-style-fallback-replaces-psm-container" if replaced_psm_container_with_style
+                    else "sha-text-anchor-plus-psm-size" if uses_sha_text_anchor
                     else "sha-ellipse-anchor-offset" if ellipse_adjustment is not None
                     else "sha-psm-envelope"
                 ),
@@ -1087,6 +1717,28 @@ def render(
                     "sha_template_revision_count": len(revision_text),
                     "sha_template_note_count": len(notes),
                     "sha_connection_point_count": len(connection_points),
+                    "sha_connection_points": [
+                        {
+                            "uci": str(region["uci"]),
+                            "graphic_ref": f"0x{int(region['graphic_ref']):08X}",
+                            "psm_bbox_page_units": list(region["bbox"]),
+                            "anchor_page_units": list(
+                                ellipse_anchor_by_ref.get(
+                                    int(region["graphic_ref"]),
+                                    (
+                                        (region["bbox"][0] + region["bbox"][2]) / 2,
+                                        (region["bbox"][1] + region["bbox"][3]) / 2,
+                                    ),
+                                )
+                            ),
+                            "mapping_basis": (
+                                "sha-ellipse-anchor-plus-geometry-topology"
+                                if int(region["graphic_ref"]) in ellipse_anchor_by_ref
+                                else "sha-psm-micro-uci-plus-geometry-topology"
+                            ),
+                        }
+                        for region in connection_points
+                    ],
                     "inferred_marker_box_count": inferred_marker_boxes,
                     "segments": manifest_segments,
                     "text": manifest_text,
@@ -1119,6 +1771,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("sha", type=Path)
     parser.add_argument("--page", type=int, default=1)
+    parser.add_argument("--sheet-stream", help="Render this physical SHA Sheet stream instead of selecting by logical page.")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--debug-boxes", action="store_true")
     parser.add_argument("--manifest", type=Path, help="Write the SHA-to-SVG traceability manifest as JSON.")
@@ -1128,7 +1781,7 @@ def main() -> None:
         help="Earlier SHA-UCI SVG vector layer to preserve beneath Sheet6 page geometry.",
     )
     args = parser.parse_args()
-    render(args.sha, args.output, args.page, args.debug_boxes, args.manifest, args.component_layer)
+    render(args.sha, args.output, args.page, args.debug_boxes, args.manifest, args.component_layer, args.sheet_stream)
 
 
 if __name__ == "__main__":
