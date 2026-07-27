@@ -1493,6 +1493,9 @@ def render(
         if str(record["text"]).strip().upper().startswith(process_note_prefixes)
     ]
     process_note_frames_by_ref: dict[int, tuple[int, int, int, int]] = {}
+    process_note_by_ref = {
+        int(record["graphic_ref"]): record for record in process_note_records
+    }
     for frame in sheet_rectangles(alternate_segments):
         frame_left, frame_bottom, frame_right, frame_top = frame
         contained = [
@@ -1512,6 +1515,43 @@ def render(
                 (current[2] - current[0]) * (current[3] - current[1])
             ):
                 process_note_frames_by_ref[ref] = frame
+    # A second observed process-note layout is one label followed immediately
+    # by its code: ``INSUL:`` + ``HI50`` (and the equivalent CLASS/TRACE
+    # pairs).  Each row has its own 18/32 frame, so the older requirement for
+    # two prefix labels in one rectangle cannot see it.  The adjacent graphic
+    # references and both Sheet anchors inside one small closed SHA rectangle
+    # are a stronger local relation than a PSM-overlap guess.
+    all_text_by_ref = {
+        int(record["graphic_ref"]): record for record in sheet_text_records
+    }
+    for ref, label in process_note_by_ref.items():
+        code = all_text_by_ref.get(ref + 1)
+        if code is None:
+            continue
+        code_text = str(code["text"]).strip()
+        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9._/-]{1,24}", code_text):
+            continue
+        label_x, label_y = float(label["x"]) * SHEET_UNIT, float(label["y"]) * SHEET_UNIT
+        code_x, code_y = float(code["x"]) * SHEET_UNIT, float(code["y"]) * SHEET_UNIT
+        candidates = [
+            frame
+            for frame in sheet_rectangles(alternate_segments)
+            if frame[0] - 8 <= label_x <= frame[2] + 8
+            and frame[1] - 8 <= label_y <= frame[3] + 8
+            and frame[0] - 8 <= code_x <= frame[2] + 8
+            and frame[1] - 8 <= code_y <= frame[3] + 8
+            and frame[2] - frame[0] <= 1_000
+            and frame[3] - frame[1] <= 500
+        ]
+        if not candidates:
+            continue
+        frame = min(candidates, key=lambda item: (item[2] - item[0]) * (item[3] - item[1]))
+        for paired_ref in (ref, ref + 1):
+            current = process_note_frames_by_ref.get(paired_ref)
+            if current is None or (frame[2] - frame[0]) * (frame[3] - frame[1]) < (
+                (current[2] - current[0]) * (current[3] - current[1])
+            ):
+                process_note_frames_by_ref[paired_ref] = frame
     starred_right_title_labels = {
         str(record["text"]).strip()[1:-1]
         for record in sheet_text_records
@@ -1884,7 +1924,8 @@ def render(
                 "source_frame_page_units": list(source_frame) if source_frame else None,
                 "ellipse_anchor_adjustment_page_units": ellipse_adjustment,
                 "position_mapping": (
-                    "sha-closed-frame-replaces-psm-container" if replaced_psm_container
+                    "sha-process-note-anchor-in-18-32-frame" if process_note_frame is not None
+                    else "sha-closed-frame-replaces-psm-container" if replaced_psm_container
                     else "sha-style-fallback-replaces-psm-container" if replaced_psm_container_with_style
                     else "sha-left-free-anchor-plus-psm-size" if left_free_anchor_candidate
                     else "sha-text-anchor-plus-psm-size" if uses_sha_text_anchor
