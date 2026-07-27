@@ -108,6 +108,80 @@ def point_segment_distance(
     return math.hypot(px - (x1 + projection * dx), py - (y1 + projection * dy))
 
 
+def page_uci_regions(
+    sheet: bytes, psm: bytes, dynamic: dict[str, list[dict[str, int]]]
+) -> tuple[dict[int, list[str]], list[dict[str, object]]]:
+    """Return the direct SHA UCI records that belong to one Sheet stream.
+
+    Dynamic Attributes is shared by all ISO pages.  A graphic reference is
+    page-local only when its four-byte reference occurs in the selected Sheet.
+    Keeping this relation in one helper prevents audit tools from silently
+    using a different mapping rule than the SVG renderer.
+    """
+
+    graphics: dict[int, list[str]] = defaultdict(list)
+    for uci, records in dynamic.items():
+        for record in records:
+            ref = int(record["graphic_ref"])
+            if struct.pack("<I", ref) in sheet:
+                graphics[ref].append(uci)
+    regions = [
+        {"graphic_ref": ref, "uci": uci, "bbox": bbox}
+        for ref, ucis in graphics.items()
+        if (bbox := psm_bbox(psm, ref)) is not None
+        for uci in sorted(set(ucis))
+    ]
+    return graphics, regions
+
+
+def visible_connection_points(
+    sheet: bytes,
+    psm: bytes,
+    uci_regions: list[dict[str, object]],
+    template_segments: list[tuple[float, float, float, float, int, int]] | None = None,
+) -> list[dict[str, object]]:
+    """Identify SHA micro-records rendered as visible connection/weld dots.
+
+    These are not line primitives: Shape2D stores them as tiny PSM/UCI regions
+    positioned on decoded geometry.  This deliberately mirrors the renderer's
+    source-only rule so coverage audits do not report already rendered dots as
+    missing PCF welds.
+    """
+
+    segments = line_segments(sheet) + (template_segments or []) + composite_segments(sheet)
+    if not segments:
+        return []
+    vector_refs = {ref for *_, ref, child_ref in segments} | {
+        child_ref for *_, ref, child_ref in segments
+    }
+    anchors = ellipse_anchors(sheet)
+
+    def is_visible(region: dict[str, object]) -> bool:
+        left, bottom, right, top = region["bbox"]  # type: ignore[misc]
+        ref = int(region["graphic_ref"])
+        center_x, center_y = anchors.get(ref, ((left + right) / 2, (bottom + top) / 2))
+        return min(
+            point_segment_distance(
+                center_x,
+                center_y,
+                x1 * SHEET_UNIT,
+                y1 * SHEET_UNIT,
+                x2 * SHEET_UNIT,
+                y2 * SHEET_UNIT,
+            )
+            for x1, y1, x2, y2, _, _ in segments
+        ) <= 80
+
+    return [
+        region
+        for region in uci_regions
+        if int(region["graphic_ref"]) not in vector_refs
+        and (region["bbox"][2] - region["bbox"][0]) <= 45  # type: ignore[index]
+        and (region["bbox"][3] - region["bbox"][1]) <= 45  # type: ignore[index]
+        and is_visible(region)
+    ]
+
+
 def rotated_text_extent(width: float, height: float, angle_degrees: float) -> tuple[float, float]:
     """Recover local glyph height and text length from a rotated PSM envelope.
 
@@ -1061,21 +1135,10 @@ def render(
             None,
         )
     view_x, view_y, view_width, view_height = sheet_viewbox(sheet, shared_viewbox)
-    graphics: dict[int, list[str]] = defaultdict(list)
-    for uci, records in dynamic.items():
-        for record in records:
-            ref = int(record["graphic_ref"])
-            if struct.pack("<I", ref) in sheet:
-                graphics[ref].append(uci)
+    graphics, uci_regions = page_uci_regions(sheet, psm, dynamic)
     uci_by_object_ref: dict[int, list[str]] = defaultdict(list)
     for graphic_ref, ucis in graphics.items():
         uci_by_object_ref[graphic_ref & 0xFFFF].extend(ucis)
-    uci_regions = [
-        {"graphic_ref": ref, "uci": uci, "bbox": bbox}
-        for ref, ucis in graphics.items()
-        if (bbox := psm_bbox(psm, ref)) is not None
-        for uci in sorted(set(ucis))
-    ]
     component_lines = component_layer_lines(component_layer, graphics) if component_layer else []
     template_segments = template_line_segments(streams.get("Sheet221", b""))
     images = template_images(streams)
@@ -1314,42 +1377,9 @@ def render(
                 anchor[0] - (left + right) / 2,
                 anchor[1] - (bottom + top) / 2,
             ))
-    vector_refs = {ref for *_, ref, child_ref in segments} | {child_ref for *_, ref, child_ref in segments}
-    def is_visible_connection_point(region: dict[str, object]) -> bool:
-        """Reject tiny PSM/UCI records that are not attached to visible geometry.
-
-        Shape2D also stores small non-drawing records in the UCI/PSM layers.
-        A visible weld/connection dot must be local to a decoded pipe or
-        component segment; otherwise it is not emitted as ISO geometry.
-        """
-
-        if not segments:
-            return False
-        left, bottom, right, top = region["bbox"]
-        ref = int(region["graphic_ref"])
-        center_x, center_y = ellipse_anchor_by_ref.get(
-            ref, ((left + right) / 2, (bottom + top) / 2)
-        )
-        return min(
-            point_segment_distance(
-                center_x,
-                center_y,
-                x1 * SHEET_UNIT,
-                y1 * SHEET_UNIT,
-                x2 * SHEET_UNIT,
-                y2 * SHEET_UNIT,
-            )
-            for x1, y1, x2, y2, _, _ in segments
-        ) <= 80
-
-    connection_points = [
-        region
-        for region in uci_regions
-        if int(region["graphic_ref"]) not in vector_refs
-        and (region["bbox"][2] - region["bbox"][0]) <= 45
-        and (region["bbox"][3] - region["bbox"][1]) <= 45
-        and is_visible_connection_point(region)
-    ]
+    connection_points = visible_connection_points(
+        sheet, psm, uci_regions, alternate_segments
+    )
     arcs = composite_arcs(sheet)
     manifest_segments: list[dict[str, object]] = []
     elements.append('<g fill="none" stroke="#17202a" stroke-width="8" stroke-linecap="square" shape-rendering="geometricPrecision">')

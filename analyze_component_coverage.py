@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import struct
 from collections import Counter
 from pathlib import Path
 
@@ -17,16 +16,27 @@ from sha_to_svg_prototype import (
     composite_segments,
     intersects_bbox,
     line_segments,
+    page_uci_regions,
     psm_bbox,
     psm_ellipses,
     template_line_segments,
+    visible_connection_points,
 )
 
 
-def has_geometry(sheet: bytes, psm: bytes, bbox: tuple[int, int, int, int]) -> bool:
+def has_geometry(
+    sheet: bytes,
+    psm: bytes,
+    bbox: tuple[int, int, int, int],
+    template_segments: list[tuple[float, float, float, float, int, int]],
+    connection_refs: set[int],
+    graphic_ref: int,
+) -> bool:
+    if graphic_ref in connection_refs:
+        return True
     left, bottom, right, top = bbox
     padded = (left - 80, bottom - 80, right + 80, top + 80)
-    segments = line_segments(sheet) + template_line_segments(sheet) + composite_segments(sheet)
+    segments = line_segments(sheet) + template_segments + composite_segments(sheet)
     if any(
         intersects_bbox(x1 * SHEET_UNIT, y1 * SHEET_UNIT, x2 * SHEET_UNIT, y2 * SHEET_UNIT, padded)
         for x1, y1, x2, y2, _, _ in segments
@@ -53,29 +63,30 @@ def main() -> None:
         streams = read_sha_streams(Path(drawing["sha"]))
         psm = streams.get("PSMcluster0", b"")
         dynamic = dynamic_graphics(streams.get("Unclustered Dynamic Attributes", b""))
+        template_segments = template_line_segments(streams.get("Sheet221", b""))
         for page in drawing["pages_with_targets"]:
             sheet = streams[page["sheet_stream"]]
-            refs = {
-                int(record["graphic_ref"]): uci
-                for uci, records in dynamic.items()
-                for record in records
-                if struct.pack("<I", int(record["graphic_ref"])) in sheet
+            refs, regions = page_uci_regions(sheet, psm, dynamic)
+            connection_refs = {
+                int(region["graphic_ref"])
+                for region in visible_connection_points(sheet, psm, regions, template_segments)
             }
-            for ref, uci in refs.items():
+            for ref, ucis in refs.items():
                 bbox = psm_bbox(psm, ref)
                 if bbox is None:
                     continue
-                total += 1
-                if has_geometry(sheet, psm, bbox):
-                    continue
-                uncovered.append({
-                    "drawing": drawing["drawing"],
-                    "sheet_stream": page["sheet_stream"],
-                    "uci": uci,
-                    "pcf_kind": pcf_kind.get(uci, "SHA-only"),
-                    "graphic_ref": f"0x{ref:08X}",
-                    "psm_bbox_page_units": list(bbox),
-                })
+                for uci in sorted(set(ucis)):
+                    total += 1
+                    if has_geometry(sheet, psm, bbox, template_segments, connection_refs, ref):
+                        continue
+                    uncovered.append({
+                        "drawing": drawing["drawing"],
+                        "sheet_stream": page["sheet_stream"],
+                        "uci": uci,
+                        "pcf_kind": pcf_kind.get(uci, "SHA-only"),
+                        "graphic_ref": f"0x{ref:08X}",
+                        "psm_bbox_page_units": list(bbox),
+                    })
     report = {
         "scope": "PCF supplies component kind only; geometry coverage is calculated from SHA streams.",
         "checked_uci_instances": total,
