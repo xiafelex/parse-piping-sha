@@ -24,11 +24,22 @@ def main() -> None:
     parser.add_argument("manifest", type=Path)
     parser.add_argument("--limit", type=int, default=10)
     parser.add_argument("--output", type=Path, default=Path("output/left_text_ten_sample/selection.json"))
+    parser.add_argument(
+        "--exclude-selection",
+        type=Path,
+        help="Existing selection.json whose drawings must not be selected again.",
+    )
     args = parser.parse_args()
 
     manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
+    excluded = set()
+    if args.exclude_selection:
+        previous = json.loads(args.exclude_selection.read_text(encoding="utf-8"))
+        excluded = {str(item["drawing"]) for item in previous["selected_drawings"]}
     choices = []
     for drawing in manifest["drawings"]:
+        if drawing["drawing"] in excluded:
+            continue
         sha_path = Path(drawing["sha"])
         pcf_path = paired_pcf(sha_path, drawing["drawing"])
         if not pcf_path.exists():
@@ -85,6 +96,7 @@ def main() -> None:
     selected = [item for _, item in sorted(choices, key=lambda row: (-row[0], row[1]["drawing"]))[: args.limit]]
     result = {
         "scope": "Ten-pair left ISO text correction trial. PCF confirms pairing only; SHA remains the geometry source.",
+        "excluded_drawings": sorted(excluded),
         "targets": list(TARGETS),
         "selected_drawings": selected,
         "total_target_counts": dict(sum((Counter(item["target_counts"]) for item in selected), Counter())),
