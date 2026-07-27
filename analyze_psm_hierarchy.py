@@ -34,7 +34,27 @@ def parse_tseg_nodes(data: bytes) -> dict[str, object]:
 
     if len(data) < 12 or data[:4] != b"tseg":
         raise ValueError("not a tseg stream")
-    offset = 12
+    # Two observed layouts share the ``tseg`` marker. The original layout has
+    # two uint32 header values and starts its node table at byte 12. Compact
+    # exports instead begin with ``<node_count, 1>`` then a root id, a uint16
+    # child count, and that many uint16 local child refs before the same node
+    # table. Detect the compact header from its bounded index and require full
+    # node-table consumption below.
+    compact_node_count, compact_flag = struct.unpack_from("<2H", data, 4)
+    compact_root: dict[str, object] | None = None
+    if compact_flag == 1 and len(data) >= 12:
+        root_id, root_child_count = struct.unpack_from("<2H", data, 8)
+        compact_offset = 12 + root_child_count * 2
+        if root_child_count <= 500 and compact_offset <= len(data):
+            compact_root = {
+                "id": root_id,
+                "child_refs": list(struct.unpack_from(f"<{root_child_count}H", data, 12)),
+            }
+            offset = compact_offset
+        else:
+            offset = 12
+    else:
+        offset = 12
     nodes: list[dict[str, object]] = []
     while offset < len(data):
         if offset + 8 > len(data):
@@ -60,8 +80,12 @@ def parse_tseg_nodes(data: bytes) -> dict[str, object]:
             }
         )
         offset = end
+    if compact_root is not None and len(nodes) != compact_node_count:
+        raise ValueError(f"compact node count mismatch: header={compact_node_count}, parsed={len(nodes)}")
     return {
         "header_u32": list(struct.unpack_from("<2I", data, 4)),
+        "layout": "compact-root-index" if compact_root is not None else "standard",
+        "compact_root": compact_root,
         "node_count": len(nodes),
         "nodes": nodes,
         "fully_consumed": offset == len(data),
@@ -106,20 +130,34 @@ def analyze(sha_path: Path) -> dict[str, object]:
     main = space_streams.get(main_name)
     if main is None:
         raise ValueError(f"{main_name} is absent")
-    hierarchy = parse_tseg_nodes(main)
-    relation_counts = Counter(
-        child["relation"]
-        for node in hierarchy["nodes"]
-        for child in node["children"]
-    )
+    try:
+        hierarchy = parse_tseg_nodes(main)
+        relation_counts = Counter(
+            child["relation"]
+            for node in hierarchy["nodes"]
+            for child in node["children"]
+        )
+        main_result: dict[str, object] = {"layout": "validated-full-node-table", "tseg": hierarchy}
+        relation_result: dict[str, int] = {str(key): value for key, value in sorted(relation_counts.items())}
+    except ValueError as error:
+        # Different Shape2D exports can use another compact layout under the
+        # same stream name. Keep it explicitly inventory-only rather than
+        # inventing node/child boundaries from a parser that did not consume
+        # the source stream safely.
+        main_result = {
+            "layout": "unvalidated-variant",
+            "parse_error": str(error),
+            "partial_summary": partial_tseg_summary(main),
+        }
+        relation_result = {}
     return {
         "source_sha": str(sha_path),
         "validated": {
             "cluster_registry_names": utf16_strings(streams.get("PSMclustertable", b"")),
             "root_registry_names": utf16_strings(streams.get("PSMroots", b"")),
             "spacemap": main_name,
-            "tseg": hierarchy,
-            "relation_code_counts": {str(key): value for key, value in sorted(relation_counts.items())},
+            "main_spacemap": main_result,
+            "relation_code_counts": relation_result,
         },
         "not_yet_decoded": {
             name: partial_tseg_summary(data)
@@ -132,7 +170,7 @@ def analyze(sha_path: Path) -> dict[str, object]:
             if name.startswith("PSM") and name not in space_streams and name not in {"PSMclustertable", "PSMroots"}
         },
         "confidence_notice": (
-            "Node and child-reference boundaries for PSMspacemap/0x00008000 are validated by full stream consumption. "
+            "The 0x00008000 table is marked validated only when its node framing consumes the full source stream. "
             "Relation-code semantics and links from local child references to PSMcluster0/Sheet primitives remain unresolved."
         ),
     }
@@ -147,7 +185,11 @@ def main() -> None:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(f"PSM hierarchy report: {args.output}")
-    print(f"Validated nodes: {result['validated']['tseg']['node_count']}")
+    main_map = result["validated"]["main_spacemap"]
+    if main_map["layout"] == "validated-full-node-table":
+        print(f"Validated nodes: {main_map['tseg']['node_count']}")
+    else:
+        print("PSM hierarchy layout: unvalidated variant")
 
 
 if __name__ == "__main__":
