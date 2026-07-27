@@ -113,6 +113,7 @@ If the engine cannot start, see `engine-startup.log` in that same directory.
 - `analyze_psm_hierarchy.py`: validated PSM hierarchy evidence extractor.
 - `render_psm_hierarchy_overlay.py`: SHA-only visual diagnostic for candidate PSM node envelopes.
 - `run_sha_iso_render.py`: convenience wrapper for SVG, trace JSON, and PNG.
+- `analyze_left_text_offsets.py`: SHA-only audit of left ISO drawing text-placement evidence; PDF remains visual QA only.
 
 ## Status
 

@@ -1023,6 +1023,7 @@ def render(
     manifest_path: Path | None,
     component_layer: Path | None,
     sheet_stream: str | None = None,
+    anchor_left_free_text: bool = False,
 ) -> None:
     streams = read_sha_streams(sha_path)
     sheets = {
@@ -1438,6 +1439,7 @@ def render(
             # points at a page container and is not independently visible.
             continue
         bbox = psm_bbox(psm, ref)
+        has_direct_psm_bbox = bbox is not None
         emitted_text.add((ref, text))
         direction_x, direction_y = float(obj["direction_x"]), float(obj["direction_y"])
         direction_length = math.hypot(direction_x, direction_y)
@@ -1471,6 +1473,11 @@ def render(
             left, bottom, right, top = bbox
             height = max(42, top - bottom)
             width = right - left
+        # Retain the original PSM metrics.  Later SHA-only container recovery
+        # can replace the temporary envelope, and must never qualify as a
+        # free-text anchor correction.
+        original_psm_width = width
+        original_psm_height = height
         anchor_x, anchor_y = float(obj["x"]) * SHEET_UNIT, float(obj["y"]) * SHEET_UNIT
         # The physical A1 template occupies the SHA page's right-hand panel.
         # Its direct Sheet records form a separate style cluster from the
@@ -1632,13 +1639,39 @@ def render(
                 None,
             )
         is_north_marker = text == "N" and int(obj["style_ref"]) == 0xE74
-        uses_sha_text_anchor = (
+        known_anchor_style = (
             int(obj["style_ref"]) in {0x0585, 0x0586, 0x0897, 0x0E74}
             and ellipse_adjustment is None
             and source_frame is None
             and not rotated
             and text != "N"
         )
+        # Experimental left-ISO rule: some ordinary free annotations retain a
+        # stable direct Sheet insertion point while their PSM glyph box is
+        # offset into a local layout space. Keep PSM glyph dimensions but use
+        # the SHA anchor only for the narrowly evidenced offset band. This is
+        # opt-in until visual QA confirms it across the corpus.
+        left_free_anchor_candidate = (
+            anchor_left_free_text
+            and anchor_x < view_x + view_width * 0.55
+            and ellipse_adjustment is None
+            and source_frame is None
+            and not rotated
+            and not marker_box
+            and not boxed_reference_text
+            and not support_box_text
+            and not boxed_numeric_text
+            and not insulation_code
+            and text != "N"
+            and not replaced_psm_container
+            and not replaced_psm_container_with_style
+            and has_direct_psm_bbox
+            and original_psm_height <= 320
+            and original_psm_width <= original_psm_height * max(2, len(text)) * 2.2
+            and -260 <= left - anchor_x <= -40
+            and -280 <= bottom - anchor_y <= -50
+        )
+        uses_sha_text_anchor = known_anchor_style or left_free_anchor_candidate
         if is_north_marker:
             # The north frame/arrow is already direct Sheet6 geometry.  Its
             # PSM text envelope lies in a different local coordinate space,
@@ -1728,6 +1761,7 @@ def render(
                 "position_mapping": (
                     "sha-closed-frame-replaces-psm-container" if replaced_psm_container
                     else "sha-style-fallback-replaces-psm-container" if replaced_psm_container_with_style
+                    else "sha-left-free-anchor-plus-psm-size" if left_free_anchor_candidate
                     else "sha-text-anchor-plus-psm-size" if uses_sha_text_anchor
                     else "sha-ellipse-anchor-offset" if ellipse_adjustment is not None
                     else "sha-psm-envelope"
@@ -1834,6 +1868,11 @@ def main() -> None:
     parser.add_argument("sha", type=Path)
     parser.add_argument("--page", type=int, default=1)
     parser.add_argument("--sheet-stream", help="Render this physical SHA Sheet stream instead of selecting by logical page.")
+    parser.add_argument(
+        "--anchor-left-free-text",
+        action="store_true",
+        help="Experimental: use direct SHA anchors for eligible left-side free annotation text.",
+    )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--debug-boxes", action="store_true")
     parser.add_argument("--manifest", type=Path, help="Write the SHA-to-SVG traceability manifest as JSON.")
@@ -1843,7 +1882,16 @@ def main() -> None:
         help="Earlier SHA-UCI SVG vector layer to preserve beneath Sheet6 page geometry.",
     )
     args = parser.parse_args()
-    render(args.sha, args.output, args.page, args.debug_boxes, args.manifest, args.component_layer, args.sheet_stream)
+    render(
+        args.sha,
+        args.output,
+        args.page,
+        args.debug_boxes,
+        args.manifest,
+        args.component_layer,
+        args.sheet_stream,
+        args.anchor_left_free_text,
+    )
 
 
 if __name__ == "__main__":

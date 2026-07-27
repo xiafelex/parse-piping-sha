@@ -58,6 +58,28 @@ SHA、`148` 个物理 Sheet 走了不可靠的回退排序。修复后以标题�
 全页级遮挡或页序错误，且当前尚无可在多种 SHA 中复用的单一二进制规则；本轮不以
 牺牲正确构件为代价做猜测性修复。
 
+## 左侧单线图文字偏移专项审计
+
+范围只包含左侧单线图（按每页可视区域的左 `55%` 判定），不处理右侧材料表、标题栏
+或图框文字。统计直接读取 `646` 页 SHA-only trace；PDF 仅用于目视验收，未读取或反写
+坐标、文字、几何。
+
+| 情况 | 数量 | 结论 |
+| --- | ---: | --- |
+| 已有直接 SHA 定位关系 | 13,541 个文字 | 已使用 Sheet 文字锚点、椭圆关联、闭合框或样式兜底；不再施加统一偏移。 |
+| 仍用 PSM 字框定位 | 31,208 个文字 | PSM 字框通常是最终纸面字形范围，不能仅因它与 Sheet 锚点不同就替换。 |
+| 自由注释的候选稳定偏移 | 7,055 个文字 | 排除了方框、椭圆、旋转、构件码和容器后，PSM 与 Sheet 锚点反复存在固定差异。 |
+| 可进入局部试验的稳定文字族 | 13 族 / 979 个文字 | 集中于 `INSUL`、`CLASS`、`TRACE` 等保温/等级/伴热说明；偏移中位数约为 `(-110~-140, -150~-195)` 个纸面单位。 |
+| 样本不足或离散过大 | 6,076 个文字 | 可收集更多样本后按“样式 + 文字族 + 引线关系”细分，当前不能自动推广。 |
+| 受特殊布局保护 | 22,107 个文字 | 构件框、椭圆仪表、旋转尺寸等已有专门关系；强行改用锚点会破坏现有排版。 |
+| 页面级/复合 PSM 容器 | 2,046 个文字 | 需继续解码 PSM 父子关系或 StyleCluster，不能用二维平移解决。 |
+
+新增 `analyze_left_text_offsets.py` 可复跑以上统计，并生成
+`LEFT_TEXT_OFFSET_AUDIT_CN.md` 与 JSON。`sha_to_svg_prototype.py` 提供
+`--anchor-left-free-text` 作为严格受限的试验开关：只影响满足自由注释条件的对象，
+默认关闭。两页跨文件目视复核显示其移动方向有依据，但并不能稳定优于 PSM 位置，
+因此当前不将它提升为全量默认规则。
+
 ## 可复跑流程
 
 ```bash
@@ -66,6 +88,10 @@ NODE_PATH=<playwright-node_modules> node render_svg_tree_png.cjs \
   output/n400_corpus_audit output/n400_corpus_audit 1200
 python3 summarize_sha_render_corpus.py \
   output/n400_corpus_audit/audit_manifest.json
+python3 analyze_left_text_offsets.py \
+  output/n400_corpus_audit/audit_manifest.json \
+  --json-out output/n400_corpus_audit/left_text_offset_summary.json \
+  --markdown-out output/n400_corpus_audit/LEFT_TEXT_OFFSET_AUDIT_CN.md
 python3 measure_sha_pdf_visual_difference.py \
   output/n400_corpus_audit/corpus_quality_summary.json
 ```
