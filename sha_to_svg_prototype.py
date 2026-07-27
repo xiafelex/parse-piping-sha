@@ -1263,6 +1263,22 @@ def render(
         return (first, second) if first <= second else (second, first)
 
     ordinary_geometry = {geometry_key(segment) for segment in ordinary_segments}
+    composite_frame_edges = {
+        tuple(sorted(edge))
+        for left, bottom, right, top in sheet_rectangles(composite)
+        for edge in (
+            ((left, bottom), (right, bottom)),
+            ((left, top), (right, top)),
+            ((left, bottom), (left, top)),
+            ((right, bottom), (right, top)),
+        )
+    }
+    composite_frame_children = {
+        child_ref
+        for x1, y1, x2, y2, _, child_ref in composite
+        if tuple(sorted(((round(x1 * SHEET_UNIT), round(y1 * SHEET_UNIT)), (round(x2 * SHEET_UNIT), round(y2 * SHEET_UNIT)))))
+        in composite_frame_edges
+    }
     alternate_object_groups = template_line_object_groups(sheet)
     style_data = streams.get("StyleCluster", b"")
     sheet_line_width_by_child = sheet_line_widths(sheet, style_data)
@@ -1345,6 +1361,12 @@ def render(
                 or geometry_key((x1, y1, x2, y2, ref, child_ref)) in ordinary_geometry
             )
         ):
+            continue
+        if family != "composite" and child_ref in composite_frame_children:
+            # A composite closed frame can share its child primitives with an
+            # offset ordinary/18/32 copy. The composite endpoints are the
+            # page-space geometry; retain them and suppress only that local
+            # duplicate, never unrelated component lines.
             continue
         page_x1, page_y1 = x1 * SHEET_UNIT, y1 * SHEET_UNIT
         page_x2, page_y2 = x2 * SHEET_UNIT, y2 * SHEET_UNIT
