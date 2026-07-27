@@ -1451,6 +1451,37 @@ def render(
     # changes the measured aspect ratio of dimensions and callout labels.
     elements.append('<g fill="#17202a" font-family="\'Courier New\', Courier, monospace" text-rendering="geometricPrecision">')
     sheet_text_records = text_records(sheet)
+    # Process-note boxes are a distinct local-layout pattern.  The visible
+    # frame is often an 18/32 rectangle while every line's Sheet anchor is
+    # already inside that frame; its PSM glyph envelope is offset into a
+    # separate layout space.  Require at least two note anchors in one SHA
+    # rectangle so this cannot capture a coincidental component marker box.
+    process_note_prefixes = ("CLASS", "INSUL", "TRACE")
+    process_note_records = [
+        record
+        for record in sheet_text_records
+        if str(record["text"]).strip().upper().startswith(process_note_prefixes)
+    ]
+    process_note_frames_by_ref: dict[int, tuple[int, int, int, int]] = {}
+    for frame in sheet_rectangles(alternate_segments):
+        frame_left, frame_bottom, frame_right, frame_top = frame
+        contained = [
+            record
+            for record in process_note_records
+            if frame_left - 8 <= float(record["x"]) * SHEET_UNIT <= frame_right + 8
+            and frame_bottom - 8 <= float(record["y"]) * SHEET_UNIT <= frame_top + 8
+        ]
+        if len(contained) < 2:
+            continue
+        for record in contained:
+            ref = int(record["graphic_ref"])
+            current = process_note_frames_by_ref.get(ref)
+            # Nested rectangles can occur at a branch.  The smallest direct
+            # SHA frame containing the same note anchor is the local cell.
+            if current is None or (frame_right - frame_left) * (frame_top - frame_bottom) < (
+                (current[2] - current[0]) * (current[3] - current[1])
+            ):
+                process_note_frames_by_ref[ref] = frame
     starred_right_title_labels = {
         str(record["text"]).strip()[1:-1]
         for record in sheet_text_records
@@ -1672,10 +1703,13 @@ def render(
         )
         semantic = f' data-uci="{html.escape(",".join(text_ucis))}"' if text_ucis else ""
         insulation_code = bool(re.fullmatch(r"CI\d+", text))
+        process_note_frame = process_note_frames_by_ref.get(ref)
         # Only ISO component-marker codes are centred in an enclosing frame.
         # Other labels can share a nearby leader/frame anchor while their PSM
         # envelope is the actual location (e.g. INSUL:/CI30/CI50).
         source_frame = anchored_frame
+        if process_note_frame is not None:
+            source_frame = process_note_frame
         if insulation_code:
             # CIxx text follows its immediately preceding local rectangle
             # graphic, not the text-anchor coordinate system. This relation is
@@ -1744,6 +1778,17 @@ def render(
             elements.append(
                 f'<text x="{anchor_x:.1f}" y="{svg_y(anchor_y):.1f}" font-size="{max(72, min(112, height)):.1f}"{font_family_attr} '
                 f'data-layer="sha-north-label" data-style="0x{int(obj["style_ref"]):04X}">{html.escape(text)}</text>'
+            )
+        elif process_note_frame is not None:
+            # The direct Sheet transform is the baseline inside this proven
+            # 18/32 process-note frame.  PSM still supplies the producer's
+            # glyph height and width, but not its displaced insertion point.
+            elements.append(
+                f'<text x="{anchor_x:.1f}" y="{svg_y(anchor_y):.1f}" '
+                f'font-size="{height}" textLength="{width}" lengthAdjust="spacingAndGlyphs"{font_family_attr}{semantic} '
+                f'data-style="0x{int(obj["style_ref"]):04X}" '
+                'data-frame-mapping="sha-process-note-anchor-in-18-32-frame">'
+                f'{html.escape(text)}</text>'
             )
         elif source_frame is not None:
             frame_left, frame_bottom, frame_right, frame_top = source_frame
