@@ -65,6 +65,31 @@ def psm_bboxes(psm: bytes, graphic_ref: int) -> list[tuple[int, int, int, int]]:
     return boxes
 
 
+def text_psm_bbox(
+    psm: bytes, graphic_ref: int, anchor_x: float, anchor_y: float
+) -> tuple[int, int, int, int] | None:
+    """Choose the SHA PSM glyph box nearest a direct Sheet text anchor.
+
+    Low graphic references can recur in PSMcluster0.  For text, the Sheet
+    transform supplies a stronger source relation than PSM scan order: a real
+    glyph box touches or lies near that anchor while a colliding page/container
+    box is usually remote.  This remains entirely SHA-derived.
+    """
+
+    candidates = psm_bboxes(psm, graphic_ref)
+    if not candidates:
+        return None
+    page_x, page_y = anchor_x * SHEET_UNIT, anchor_y * SHEET_UNIT
+
+    def score(box: tuple[int, int, int, int]) -> tuple[float, int]:
+        left, bottom, right, top = box
+        dx = max(left - page_x, 0.0, page_x - right)
+        dy = max(bottom - page_y, 0.0, page_y - top)
+        return math.hypot(dx, dy), (right - left) * (top - bottom)
+
+    return min(candidates, key=score)
+
+
 def svg_y(y: float) -> float:
     return PAGE_HEIGHT - y
 
@@ -548,9 +573,16 @@ def template_anchor_labels(data: bytes, psm: bytes) -> list[dict[str, object]]:
             continue
         if text == "PIPING  ISOMETRIC":
             # The text record carries object 0x1252, while its actual PSM
-            # envelope is sibling graphic 0x0E77. Both are direct Sheet221
-            # records: the anchor is the insertion point and PSM supplies the
-            # rendered glyph metrics.
+            # envelope is sibling graphic 0x0E77. A few drawings reuse that
+            # low graphic reference in PSMcluster0 for a page-sized container.
+            # The smaller SHA PSM envelope is the stable label glyph box; do
+            # not let the colliding container turn this title into giant text.
+            candidates = psm_bboxes(psm, 0x0E77)
+            glyph_bbox = min(
+                candidates,
+                key=lambda box: (box[2] - box[0]) * (box[3] - box[1]),
+                default=None,
+            )
             labels.append(
                 {
                     "text": text,
@@ -558,7 +590,7 @@ def template_anchor_labels(data: bytes, psm: bytes) -> list[dict[str, object]]:
                     "y": y,
                     "font_family": "Arial, sans-serif",
                     "anchor": "start",
-                    "psm_bbox": psm_bbox(psm, 0x0E77),
+                    "psm_bbox": glyph_bbox,
                     "psm_graphic_ref": 0x0E77,
                 }
             )
@@ -583,7 +615,7 @@ def template_anchor_labels(data: bytes, psm: bytes) -> list[dict[str, object]]:
                     "y": y,
                     "font_family": "Arial, sans-serif",
                     "anchor": "start",
-                    "psm_bbox": psm_bbox(psm, psm_ref),
+                    "psm_bbox": text_psm_bbox(psm, psm_ref, x, y),
                     "psm_graphic_ref": psm_ref,
                 }
             )
@@ -1371,10 +1403,19 @@ def render(
     # A generic ``monospace`` maps to a browser-dependent substitute and
     # changes the measured aspect ratio of dimensions and callout labels.
     elements.append('<g fill="#17202a" font-family="\'Courier New\', Courier, monospace" text-rendering="geometricPrecision">')
+    sheet_text_records = text_records(sheet)
+    starred_right_title_labels = {
+        str(record["text"]).strip()[1:-1]
+        for record in sheet_text_records
+        if str(record["text"]).strip().startswith("*")
+        and str(record["text"]).strip().endswith("*")
+        and abs(float(record["direction_y"])) > 0.8
+        and float(record["x"]) >= 0.80
+    }
     emitted_text: set[tuple[int, str]] = set()
     manifest_text: list[dict[str, object]] = []
     inferred_marker_boxes = 0
-    for obj in text_records(sheet):
+    for obj in sheet_text_records:
         text = str(obj["text"]).strip()
         ref = int(obj["graphic_ref"])
         if not text or len(text) > 120 or (ref, text) in emitted_text:
@@ -1387,12 +1428,33 @@ def render(
         # positives but accept that printable ISO character.
         if not re.fullmatch(r"[A-Za-z0-9 +./()_:%*,\"'&-]+", text):
             continue
+        if (
+            text in starred_right_title_labels
+            and abs(float(obj["direction_y"])) > 0.8
+            and float(obj["x"]) >= 0.80
+        ):
+            # Shape2D retains a plain source field alongside the final
+            # asterisk-wrapped title-block drawing number. The former often
+            # points at a page container and is not independently visible.
+            continue
         bbox = psm_bbox(psm, ref)
         emitted_text.add((ref, text))
         direction_x, direction_y = float(obj["direction_x"]), float(obj["direction_y"])
         direction_length = math.hypot(direction_x, direction_y)
         if not 0.8 <= direction_length <= 1.2:
             continue
+        # The right-edge title-block drawing number is a genuine Sheet text
+        # record written as ``*<drawing id>*``. In four observed SHA files its
+        # PSM low reference collides with a page container. Its direct anchor
+        # and vertical direction identify the intended local glyph box without
+        # applying this potentially unsafe choice to ordinary ISO annotations.
+        if (
+            text.startswith("*")
+            and text.endswith("*")
+            and abs(direction_y) > 0.8
+            and float(obj["x"]) >= 0.80
+        ):
+            bbox = text_psm_bbox(psm, ref, float(obj["x"]), float(obj["y"]))
         if bbox is None:
             # No PSM extent: derive its displayed baseline from peer records
             # using the same SHA StyleCluster reference.

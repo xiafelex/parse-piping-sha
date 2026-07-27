@@ -315,6 +315,23 @@ from `SEE SHT` text or a `SheetNNNN` suffix. The authoritative page mapping is
 the actual title-block `sheet / total` field rendered from the same physical
 Sheet.
 
+For corpus QA, enumerate every populated physical `Sheet` rather than only
+the deduplicated logical page numbers. Read the current-page field at title
+block paper x about `0.753` and the total-page field at x about `0.773`; do
+not select either one by byte-record order. Before visual review, assert that
+the SHA physical-Sheet count equals its sibling PDF page count, while keeping
+the PDF outside the reconstruction path. `audit_sha_pdf_corpus.py`,
+`summarize_sha_render_corpus.py`, `measure_sha_pdf_visual_difference.py`, and
+`build_sha_pdf_visual_qa.py` implement this evidence-only flow.
+
+Right-edge title blocks can contain both a plain drawing identifier and the
+final `*identifier*` label. When both are direct vertical Sheet text records
+in the right title area, render only the starred final label. If its PSM
+reference has multiple candidates, select the box nearest the direct SHA text
+anchor; this is a scoped text rule, not a generic PSM primitive rule. Apply
+the same anchor-based candidate selection to documented fixed Sheet221 sibling
+labels such as `PIPING ISOMETRIC` and the company-name fields.
+
 The same sibling graphic reference can occur more than once in `PSMcluster0`.
 For a UTF-16 label that already has a direct SHA transform, enumerate every
 valid envelope for that reference rather than accepting the first byte match;

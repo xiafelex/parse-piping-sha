@@ -39,11 +39,14 @@ def text_objects(data: bytes) -> list[dict[str, object]]:
 def logical_page(objects: list[dict[str, object]]) -> tuple[int, int] | None:
     """Read the title-block `SHEET n OF total` digits by their stable paper position."""
 
-    digits = [
+    current_page = [
         obj
         for obj in objects
         if str(obj["text"]).isdigit()
-        and 0.745 < float(obj["x"]) < 0.780
+        # In the observed A1 title block the current page is the left field.
+        # Keeping it separate from the total avoids record-order collisions
+        # when both values are the same digit (for example, Sheet 1 of 2).
+        and 0.745 < float(obj["x"]) < 0.765
         and 0.0 < float(obj["y"]) < 0.015
     ]
     totals = [
@@ -53,9 +56,11 @@ def logical_page(objects: list[dict[str, object]]) -> tuple[int, int] | None:
         and 0.765 < float(obj["x"]) < 0.790
         and 0.0 < float(obj["y"]) < 0.015
     ]
-    if not digits or not totals:
+    if not current_page or not totals:
         return None
-    return int(str(digits[0]["text"])), int(str(totals[0]["text"]))
+    page = min(current_page, key=lambda obj: abs(float(obj["x"]) - 0.753))
+    total = min(totals, key=lambda obj: abs(float(obj["x"]) - 0.773))
+    return int(str(page["text"])), int(str(total["text"]))
 
 
 def inspect(sha_path: Path) -> str:
