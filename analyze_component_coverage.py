@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Audit paired PCF types against SHA-only rendered-geometry coverage."""
+"""Locate candidate PCF/SHA geometry gaps without claiming an object binding."""
 
 from __future__ import annotations
 
@@ -86,9 +86,18 @@ def main() -> None:
                         "pcf_kind": pcf_kind.get(uci, "SHA-only"),
                         "graphic_ref": f"0x{ref:08X}",
                         "psm_bbox_page_units": list(bbox),
+                        "mapping_confidence": "candidate-sheet-byte-occurrence",
                     })
     report = {
-        "scope": "PCF supplies component kind only; geometry coverage is calculated from SHA streams.",
+        "scope": (
+            "PCF supplies component kind only; geometry coverage is calculated from SHA streams. "
+            "A dynamic graphic reference found as raw little-endian bytes in a Sheet is a candidate page association, "
+            "not a proven Shape2D parent-child binding."
+        ),
+        "confidence_notice": (
+            "uncovered_count is a candidate-review count, not a count of confirmed missing components. "
+            "Promote a row only after a decoded Sheet record boundary or validated PSM hierarchy links the reference."
+        ),
         "checked_uci_instances": total,
         "uncovered_count": len(uncovered),
         "uncovered_by_pcf_kind": dict(sorted(Counter(row["pcf_kind"] for row in uncovered).items())),
