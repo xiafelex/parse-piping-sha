@@ -22,6 +22,11 @@ def main() -> None:
     parser.add_argument("corpus_manifest", type=Path)
     parser.add_argument("trial_manifest", type=Path)
     parser.add_argument("--out-dir", type=Path, default=Path("output/left_text_ten_sample/qa"))
+    parser.add_argument(
+        "--png-root",
+        type=Path,
+        help="Optional raster root mirroring the trial SVG tree.",
+    )
     args = parser.parse_args()
 
     corpus = json.loads(args.corpus_manifest.read_text(encoding="utf-8"))
@@ -63,7 +68,12 @@ def main() -> None:
         draw = ImageDraw.Draw(board)
         for row, (page, trace, prefix, record) in enumerate(batch):
             y = row * 330
-            sha_png = Path(page["svg"]).with_suffix(".png")
+            svg_path = Path(page["svg"])
+            if args.png_root:
+                trial_root = args.trial_manifest.parent.resolve()
+                sha_png = args.png_root.resolve() / svg_path.relative_to(trial_root).with_suffix(".png")
+            else:
+                sha_png = svg_path.with_suffix(".png")
             pdf_png = Path(pdf_by_page[(page["drawing"], page["sheet_stream"])])
             board.paste(crop_for_text(sha_png, trace, record, 700, 480), (0, y))
             board.paste(crop_for_text(pdf_png, trace, record, 700, 480), (420, y))

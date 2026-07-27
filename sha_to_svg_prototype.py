@@ -1246,6 +1246,23 @@ def render(
     alternate_segments = template_line_segments(sheet)
     composite = composite_segments(sheet)
     segments = ordinary_segments + alternate_segments + composite
+    render_segments = (
+        [(segment, "ordinary") for segment in ordinary_segments]
+        + [(segment, "alternate") for segment in alternate_segments]
+        + [(segment, "composite") for segment in composite]
+    )
+    # Sheet6 commonly serializes the same primitive twice: once as an ordinary
+    # two-point record and once in the 18/32 family.  Keep the ordinary record
+    # for an exact coordinate match and retain 18/32-only component detail.
+    # This is source de-duplication, not a visual tolerance or PDF-derived
+    # adjustment.
+    def geometry_key(segment: tuple[float, float, float, float, int, int]) -> tuple[tuple[float, float], tuple[float, float]]:
+        x1, y1, x2, y2, _, _ = segment
+        first = (round(x1, 8), round(y1, 8))
+        second = (round(x2, 8), round(y2, 8))
+        return (first, second) if first <= second else (second, first)
+
+    ordinary_geometry = {geometry_key(segment) for segment in ordinary_segments}
     alternate_object_groups = template_line_object_groups(sheet)
     style_data = streams.get("StyleCluster", b"")
     sheet_line_width_by_child = sheet_line_widths(sheet, style_data)
@@ -1320,8 +1337,14 @@ def render(
     arcs = composite_arcs(sheet)
     manifest_segments: list[dict[str, object]] = []
     elements.append('<g fill="none" stroke="#17202a" stroke-width="8" stroke-linecap="square" shape-rendering="geometricPrecision">')
-    for x1, y1, x2, y2, ref, child_ref in segments:
-        if (ref, child_ref) in duplicate_alternate_frame_edges:
+    for (x1, y1, x2, y2, ref, child_ref), family in render_segments:
+        if (
+            family == "alternate"
+            and (
+                (ref, child_ref) in duplicate_alternate_frame_edges
+                or geometry_key((x1, y1, x2, y2, ref, child_ref)) in ordinary_geometry
+            )
+        ):
             continue
         page_x1, page_y1 = x1 * SHEET_UNIT, y1 * SHEET_UNIT
         page_x2, page_y2 = x2 * SHEET_UNIT, y2 * SHEET_UNIT
