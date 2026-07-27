@@ -114,6 +114,7 @@ If the engine cannot start, see `engine-startup.log` in that same directory.
 - `render_psm_hierarchy_overlay.py`: SHA-only visual diagnostic for candidate PSM node envelopes.
 - `run_sha_iso_render.py`: convenience wrapper for SVG, trace JSON, and PNG.
 - `analyze_left_text_offsets.py`: SHA-only audit of left ISO drawing text-placement evidence; PDF remains visual QA only.
+- `build_left_text_sample.py` / `render_left_text_trial.py`: bounded paired SHA/PCF sample selection and SHA-only trial rendering for left annotation rules.
 
 ## Status
 

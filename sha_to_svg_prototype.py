@@ -1024,6 +1024,7 @@ def render(
     component_layer: Path | None,
     sheet_stream: str | None = None,
     anchor_left_free_text: bool = False,
+    anchor_left_free_text_prefixes: tuple[str, ...] = (),
 ) -> None:
     streams = read_sha_streams(sha_path)
     sheets = {
@@ -1653,6 +1654,10 @@ def render(
         # opt-in until visual QA confirms it across the corpus.
         left_free_anchor_candidate = (
             anchor_left_free_text
+            and (
+                not anchor_left_free_text_prefixes
+                or any(text.upper().startswith(prefix) for prefix in anchor_left_free_text_prefixes)
+            )
             and anchor_x < view_x + view_width * 0.55
             and ellipse_adjustment is None
             and source_frame is None
@@ -1873,6 +1878,13 @@ def main() -> None:
         action="store_true",
         help="Experimental: use direct SHA anchors for eligible left-side free annotation text.",
     )
+    parser.add_argument(
+        "--anchor-left-free-text-prefix",
+        action="append",
+        default=[],
+        metavar="PREFIX",
+        help="Limit the experimental left-text rule to an uppercase text prefix; may be repeated.",
+    )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--debug-boxes", action="store_true")
     parser.add_argument("--manifest", type=Path, help="Write the SHA-to-SVG traceability manifest as JSON.")
@@ -1891,6 +1903,7 @@ def main() -> None:
         args.component_layer,
         args.sheet_stream,
         args.anchor_left_free_text,
+        tuple(prefix.upper() for prefix in args.anchor_left_free_text_prefix),
     )
 
 
