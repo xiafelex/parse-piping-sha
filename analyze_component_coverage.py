@@ -9,7 +9,11 @@ import re
 from collections import Counter
 from pathlib import Path
 
-from analyze_iso_split import dynamic_graphics, pcf_components, read_sha_streams
+from analyze_iso_split import pcf_components, read_sha_streams
+from analyze_psm_hierarchy import (
+    bounded_dynamic_graphics_by_uci,
+    parse_dynamic_attribute_property_records,
+)
 from sha_to_svg_prototype import (
     SHEET_UNIT,
     composite_arcs,
@@ -62,7 +66,11 @@ def main() -> None:
         pcf_kind = {str(component["uci"]): str(component["kind"]) for component in components}
         streams = read_sha_streams(Path(drawing["sha"]))
         psm = streams.get("PSMcluster0", b"")
-        dynamic = dynamic_graphics(streams.get("Unclustered Dynamic Attributes", b""))
+        dynamic = bounded_dynamic_graphics_by_uci(
+            parse_dynamic_attribute_property_records(
+                streams.get("Unclustered Dynamic Attributes", b"")
+            )
+        )
         template_segments = template_line_segments(streams.get("Sheet221", b""))
         for page in drawing["pages_with_targets"]:
             sheet = streams[page["sheet_stream"]]

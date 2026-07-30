@@ -26,7 +26,11 @@ from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
-from analyze_iso_split import dynamic_graphics, pcf_components, read_sha_streams, report
+from analyze_iso_split import pcf_components, read_sha_streams, report
+from analyze_psm_hierarchy import (
+    bounded_dynamic_graphics_by_uci,
+    parse_dynamic_attribute_property_records,
+)
 from analyze_sha_pages import inspect as inspect_sha
 from run_sha_iso_render import available_pages
 from sha_to_svg_prototype import render
@@ -168,7 +172,11 @@ class Workspace:
             for sha_source in sha_sources:
                 sha_path = self.source_path(project_id, sha_source)
                 streams = read_sha_streams(sha_path)
-                dynamic = dynamic_graphics(streams.get("Unclustered Dynamic Attributes", b""))
+                dynamic = bounded_dynamic_graphics_by_uci(
+                    parse_dynamic_attribute_property_records(
+                        streams.get("Unclustered Dynamic Attributes", b"")
+                    )
+                )
                 pages = available_pages(sha_path)
                 sha_id = str(sha_source["id"])
                 artifact_dir = derived_root / sha_id
@@ -285,7 +293,11 @@ class Workspace:
     @staticmethod
     def direct_links(pcf_path: Path, sha_path: Path) -> dict[str, int]:
         _, components = pcf_components(pcf_path)
-        dynamic = dynamic_graphics(read_sha_streams(sha_path).get("Unclustered Dynamic Attributes", b""))
+        dynamic = bounded_dynamic_graphics_by_uci(
+            parse_dynamic_attribute_property_records(
+                read_sha_streams(sha_path).get("Unclustered Dynamic Attributes", b"")
+            )
+        )
         linked = [component for component in components if str(component["uci"]) in dynamic]
         return {
             "pcf_components": len(components),

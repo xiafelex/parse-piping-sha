@@ -516,6 +516,168 @@ table; a UA regression report still produces 1406 validated nodes. Local
 `graphic_ref -> space_ref` evidence remains diagnostic-only until a
 cross-sample framing rule is proven.
 
+### 2026-07-28: Composite metadata and conservative PSM identity recovery
+
+A ten-SHA SHA-only audit now separates composite metadata from visible
+geometry. Type-0 is a non-drawing composite range header; type-2, type-11,
+and type-16 primarily reference already decoded `18/32` line children rather
+than separate component outlines. A type-2-backed raw `18/32` segment shorter
+than four page units is now admitted only when that exact child reference is
+independently present in a structurally bounded type-2 composite record. This
+recovers local node and arrow details without relaxing the global binary-noise
+filter.
+
+The validated `PSMspacemap/0x8000` relation code `201` can also establish a
+strict UCI identity chain through a type-0 child to its same-parent type-5
+visible outline. The renderer records that provenance in SVG/trace metadata
+only; it does not alter geometry or visibility. Relation codes `190`, `183`,
+and `184` remain unresolved. PDF was used only to review the resulting
+SHA-only output.
+
+### 2026-07-28: Additional validated PSM map and directory boundaries
+
+`PSMspacemap/0xA000` was fully consumed by the same node framing in four of
+the ten reviewed SHA files. It is now reported as an additional validated
+node table, while its relation semantics remain inventory-only. `PSMroots`
+and `PSMclustertable` were separately inspected and are name/stream
+registries, not component-geometry indexes; they do not resolve the pending
+`190/183/184` references. The mixed `0x0000` map remains inventory-only.
+
+### 2026-07-28: PSM space-map boundary decoding without semantic overreach
+
+The ten-SHA audit identified two independently repeatable structures in
+`PSMspacemap/0x00000000`: a zero-terminated type-2/type-3 prefix and a final
+type-3 root block holding one or two `190`/`201` references. Nine samples
+contain five prefix records; AMSS1 contains a shortened three-record variant.
+The intervening type-1-dominated bytes cannot safely use the `0x8000` node
+layout, because that would convert ordinary local fields into implausible
+relation codes. The renderer does not use any of these records for geometry.
+
+The short maps `0x2000`, `0x4000`, and `0x6000` were also separated from the
+ordinary node-table parser. They are exact-length uint16-list records: four
+uint16 header values followed by the number of uint16 values stated in the
+fourth header field. This recovers their boundaries and raw values only. No
+PDF text, path, coordinate, or image was used to derive either rule.
+
+The formerly unnamed `0x6000` header now has a cross-sample meaning: its
+second uint16 field exactly equals the count of `0x0089` attribute-reference
+records in `Unclustered Dynamic Attributes` for all ten files. Its third field
+is that count plus 145, except AMSS1 where it is plus 175. Because the payload
+list is always empty, this is a dynamic-attribute count/capacity control map,
+not a Sheet221 local-id range or a visible-object selector. The reserve policy
+itself remains unresolved.
+
+`PSMsegmenttable` has also gained a concrete routing interpretation. It is
+`stab + uint32 payload count + payload bytes`, and byte index `i` exactly
+aligns with `PSMspacemap/0x(i*0x2000)` when that map exists. Any trailing
+unallocated slots are zero. The observed values 1 and 9 remain opaque segment
+tags; no PDF or geometry was used to assign them visibility or primitive type.
+
+`PSMcluster0` now has an independently bounded named-record family. Records
+begin with `0x0081`; their stored length exactly equals a 30-byte fixed header
+plus a NUL-terminated UTF-16LE name. This recovers named ISO layer-like entries
+including `PIPE`, `FITTINGS`, `WELDS`, `DIMLINES`, `MATLIST`, `ISOTEXT`,
+`SKETCHES`, `NOZZLES`, and `Level n`, together with internal object refs. The
+remaining metadata fields and actual primitive membership stay inventory-only;
+the new parser does not hide, move, or create any SVG geometry.
+
+Some named-record object references also resolve directly to nodes in complete
+`0x8000`, `0xA000`, or `0xC000` tables. The report now keeps this named-layer
+to PSM-node trace link. It is not promoted to an SVG layer assignment because
+the final node-child-to-Sheet primitive membership relation is still absent.
+In linked named-layer nodes, relation 190 repeatedly targets the verified
+`0x0089` dynamic-attribute family, while 183/184/201 remain unresolved. This
+is reported as hierarchy evidence only, not used for SVG visibility or layer
+assignment.
+
+Across the ten selected SHA files, named-record count is also an exact
+subsequent-page check: `175 + 92 * (Sheet* directory entries after Sheet221)`.
+`Sheet6` is the first page and is not part of this repeated group; SCC yields
+819 and DMW 1,095 records. This confirms a fixed base plus repeated
+later-page name groups without using a PDF.
+
+The subsequent object-reference check now identifies the exact page mapping:
+group `i` corresponds to directory-order physical Sheet `i` after Sheet221.
+Every group repeats the same 92 names and has minimum object reference equal
+to that Sheet header's local-id start minus two. A further SHA-only scan of
+65,845 renderable `18/32` lines plus 23 zero-length point records finds every
+uint32 at record byte `+14` in the
+matching page's 92-object group, with no unknown or cross-page value. The
+report now emits the direct `18/32 -> named layer` trace (`PIPE`, `FITTINGS`,
+`DIMLINES`, `ISOTEXT`, `FRAME`, and peers); it remains provenance only and is
+not a visibility rule.
+
+### 2026-07-28: PSMroots directory decoding and compact-map variants
+
+`PSMroots` is now fully framed as `rootb`, an eight-byte header, then repeated
+`uint32 UTF-16 character count + UTF-16LE name + uint32 root reference`.
+Across all ten SHA samples it yields the same five entries: `TopVFSet ->
+0x10BB`, `_SupportOnlyList -> 0x4000`, `Dynamic Attributes Set Table ->
+0x2000`, `StyleLibrarian -> 0x0001`, and `DocStore -> 0x0000`. The header byte
+is `9` although five entries follow, so it is retained as an uninterpreted
+header value rather than called a count.
+
+This makes the root identities of three short maps evidence-based: `0x0000`
+is `DocStore`, `0x2000` is the Dynamic Attributes Set Table, and `0x4000` is
+the SupportOnlyList. All reviewed `0x2000` values numerically fall in
+Sheet221's local-id interval, but they have no direct overlap with decoded
+Sheet221 primitive references and no uint32 raw Sheet221 hits. This is an
+internal Dynamic Attributes Set Table index sequence, not a Sheet221 object
+scope. Every reviewed `0x4000` and `0x6000` list is empty;
+`0x6000` has no matching root-directory name. Two RHO1 files omit `0x8000`
+entirely while retaining the same root directory and short maps, proving that
+the normal hierarchy map is optional for this export variant. These findings
+come only from SHA stream bytes; PDF was not used as data.
+
+### 2026-07-28: PSMclustertable complete stream-directory framing
+
+The separate `PSMclustertable` stream is no longer treated as a raw string
+scan. Its `clst` layout is now structurally validated as two uint32 header
+values followed by the declared number of records. Each record stores a
+uint32 UTF-16 byte length, `marker:uint8`, `directory_index:uint16`,
+`child_count:uint32`, that many uint32 child directory indexes, and a
+NUL-terminated printable UTF-16LE stream name. In all ten samples the marker
+is `1` and directory index equals record order. Sheet rows have zero children;
+the larger initial records carry a small list of child directory indexes.
+
+The new parser consumed every byte in all ten selected SHA files; declared and
+parsed entry counts agree, and every listed name resolves to an existing OLE
+stream. The directory reliably inventories `PSMcluster0`, `StyleCluster`, the
+dynamic-attribute streams, and all registered `Sheet*` streams. `PSMcluster0`
+references itself and zero or more early Sheet directory entries; that is
+stream containment only, not a link from a PSM object to visible geometry.
+
+The root-directory follow-up also found that some `TopVFSet`, `StyleLibrarian`,
+and `DocStore` references resolve to type-3 nodes in a complete `0x8000`,
+`0xA000`, or `0xC000` table. UCI records are only one dynamic-attribute
+subtype: a second verified field is `0x0089 + uint32 size + uint32 reference`,
+following `_ISO` and `Element Tag` payloads. Twelve of the 15 observed
+`190/201` child targets hit that general attribute field: nine compact `_ISO`
+size-30 records and three `Element Tag` records of sizes 149/234/240. None hit
+the UCI-only graphic-reference set, `PSMcluster0`, or a node id in a complete
+map. They therefore route mainly to dynamic drawing/property references, not
+direct components or Sheet primitives. The remaining three are not format failures:
+`0xC001` is base `0xC000` plus offset 1 for an existing map, while two `0x8002`
+targets are base `0x8000` plus offset 2. This completes the observed target
+form classification, but the base-offset selector meanings remain unresolved.
+
+The first contiguous run in the mixed `0x0000` middle uses another verified
+relation-edge layout: `<record type, child count, repeated child count, parent
+ref>` plus `<reserved=0, relation, child ref>` entries. Type-2 records carry
+one edge and type-3 records can batch many edges. Their parents continue
+references emitted by the preceding high-level prefix, confirming a PSM
+hierarchy role. The regular samples each begin with 17 records and 191--209
+such edges before a zero-child special case switches layout; parsing stops at
+that transition. These records remain excluded from SVG geometry.
+
+The later control block has now been bounded as a type-3 zero-relation list:
+`<3, 0, N, 0>` plus `N` `<0, 0, child ref>` triples. Each of the nine regular
+samples has seven such lists. Together with the ordinary relation containers
+and one fixed zero-target variant, the sequence consumes the full middle
+region exactly through the independent tail-root boundary. This is a format
+framing result only: zero-relation child refs are not yet mapped to PSM
+objects, Sheet records, or SVG elements.
+
 ### 2026-07-26: LN four-sheet visual review complete
 
 The four physical pages of `100P3A-LN-276994-01` were reviewed against their

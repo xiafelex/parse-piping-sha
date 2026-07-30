@@ -30,7 +30,11 @@ from pathlib import Path
 
 import olefile
 
-from analyze_iso_split import dynamic_graphics, read_sha_streams
+from analyze_iso_split import read_sha_streams
+from analyze_psm_hierarchy import (
+    bounded_dynamic_graphics_by_uci,
+    parse_dynamic_attribute_property_records,
+)
 from sha_to_svg_prototype import (
     PAGE_HEIGHT,
     PAGE_WIDTH,
@@ -173,7 +177,11 @@ def collect_connection_points(
     distance_threshold: float,
 ) -> dict[str, list[PointTarget]]:
     psm = streams.get("PSMcluster0", b"")
-    dynamic = dynamic_graphics(streams.get("Unclustered Dynamic Attributes", b""))
+    dynamic = bounded_dynamic_graphics_by_uci(
+        parse_dynamic_attribute_property_records(
+            streams.get("Unclustered Dynamic Attributes", b"")
+        )
+    )
     graphics: dict[int, list[str]] = defaultdict(list)
     for uci, records in dynamic.items():
         for record in records:

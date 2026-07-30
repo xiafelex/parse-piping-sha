@@ -19,7 +19,14 @@ from collections import defaultdict
 from pathlib import Path
 from statistics import median
 
-from analyze_iso_split import dynamic_graphics, read_sha_streams
+from analyze_iso_split import read_sha_streams
+from analyze_psm_hierarchy import (
+    bounded_dynamic_graphics_by_uci,
+    parse_dynamic_attribute_property_records,
+    parse_sheet_3d_placement_wrappers,
+    parse_sheet221_template_text_records,
+    parse_tseg_nodes,
+)
 from analyze_sha_pages import logical_page, text_objects
 
 PAGE_WIDTH = 16800
@@ -132,6 +139,55 @@ def page_uci_regions(
         for uci in sorted(set(ucis))
     ]
     return graphics, regions
+
+
+def psm_direct_uci_by_child(
+    streams: dict[str, bytes],
+    sheet: bytes,
+    dynamic: dict[str, list[dict[str, int]]],
+) -> dict[int, list[str]]:
+    """Map a rendered Sheet child ref to a UCI through validated PSM relation 201.
+
+    This is deliberately narrower than raw graphic-ref byte containment.  The
+    UCI's dynamic graphic ref must be a node id in a fully consumed 0x8000
+    PSM table; relation 201 must point to a child ref that exactly belongs to
+    a decoded primitive in this physical Sheet.  Other PSM relations remain
+    inventory-only until their semantics are independently proven.
+    """
+
+    hierarchy_data = streams.get("PSMspacemap/0x00008000")
+    if hierarchy_data is None:
+        return {}
+    try:
+        hierarchy = parse_tseg_nodes(hierarchy_data)
+    except ValueError:
+        return {}
+    visible_children = {
+        child_ref
+        for *_, child_ref in (
+            line_segments(sheet) + template_line_segments(sheet) + composite_segments(sheet)
+        )
+    }
+    if not visible_children:
+        return {}
+    type0_visible_children = composite_visible_children_by_type0(sheet)
+    nodes = {int(node["id"]): node for node in hierarchy["nodes"]}
+    result: dict[int, list[str]] = defaultdict(list)
+    for uci, records in dynamic.items():
+        for record in records:
+            node = nodes.get(int(record["graphic_ref"]))
+            if node is None:
+                continue
+            for child in node["children"]:
+                child_ref = int(child["ref"])
+                if int(child["relation"]) != 201:
+                    continue
+                if child_ref in visible_children:
+                    result[child_ref].append(uci)
+                for visible_child in type0_visible_children.get(child_ref, set()):
+                    if visible_child in visible_children:
+                        result[visible_child].append(uci)
+    return {child_ref: sorted(set(ucis)) for child_ref, ucis in result.items()}
 
 
 def visible_connection_points(
@@ -358,7 +414,12 @@ def composite_arcs(data: bytes) -> dict[int, tuple[float, float, float, float]]:
         if data[start : start + 2] != b"\x7b\x00":
             continue
         count = struct.unpack_from("<I", data, start + 22)[0]
-        if not 1 <= count <= 100 or start + 34 + count * 14 > len(data):
+        record_length = struct.unpack_from("<I", data, start + 2)[0]
+        if (
+            not 1 <= count <= 100
+            or record_length != 32 + count * 14
+            or start + 6 + record_length > len(data)
+        ):
             continue
         for index in range(count):
             child_ref, left, bottom, right, top, primitive_type = struct.unpack_from(
@@ -367,6 +428,49 @@ def composite_arcs(data: bytes) -> dict[int, tuple[float, float, float, float]]:
             if primitive_type == 6 and left < right and bottom < top:
                 # Composite records use a coordinate scale of two page units.
                 arcs[child_ref] = (left / 2, bottom / 2, right / 2, top / 2)
+    return arcs
+
+
+def pipe_arc_records(data: bytes) -> list[dict[str, float | int]]:
+    """Decode the bounded ``0x0061`` circular pipe-arc family.
+
+    The record has a fixed 59-byte payload. Its five doubles are centre x/y,
+    radius, absolute start angle and absolute end angle. The endpoint rule is
+    SHA-validated against PIPE-layer 18/32 line endpoints; the final angle is
+    not a sweep angle.
+    """
+
+    arcs: list[dict[str, float | int]] = []
+    signature = b"\x61\x00"
+    for match in re.finditer(re.escape(signature), data):
+        start = match.start()
+        if start + 65 > len(data) or struct.unpack_from("<I", data, start + 2)[0] != 59:
+            continue
+        center_x, center_y, radius, start_angle, end_angle = struct.unpack_from("<5d", data, start + 24)
+        if not (
+            0 <= center_x <= 1
+            and 0 <= center_y <= 1
+            and 0 < radius < 0.1
+            and all(math.isfinite(value) for value in (start_angle, end_angle))
+        ):
+            continue
+        delta = (end_angle - start_angle + math.pi) % (2 * math.pi) - math.pi
+        if abs(delta) < 1e-6:
+            continue
+        arcs.append(
+            {
+                "primitive_ref": struct.unpack_from("<I", data, start + 6)[0],
+                "graphic_ref": struct.unpack_from("<I", data, start + 10)[0],
+                "page_layer_ref": struct.unpack_from("<I", data, start + 14)[0],
+                "style_ref": struct.unpack_from("<I", data, start + 20)[0],
+                "center_x": center_x,
+                "center_y": center_y,
+                "radius": radius,
+                "start_angle": start_angle,
+                "end_angle": end_angle,
+                "delta_angle": delta,
+            }
+        )
     return arcs
 
 
@@ -384,9 +488,16 @@ def composite_segments(data: bytes) -> list[tuple[float, float, float, float, in
         if data[start : start + 2] != b"\x7b\x00":
             continue
         count = struct.unpack_from("<I", data, start + 22)[0]
-        if not 1 <= count <= 100 or start + 34 + count * 14 > len(data):
+        record_length = struct.unpack_from("<I", data, start + 2)[0]
+        if (
+            not 1 <= count <= 100
+            or record_length != 32 + count * 14
+            or start + 6 + record_length > len(data)
+        ):
             continue
-        parent_ref = struct.unpack_from("<I", data, start + 2)[0]
+        # `+2` is the bounded record length. The composite object reference
+        # that groups its child primitives is at `+6`.
+        parent_ref = struct.unpack_from("<I", data, start + 6)[0]
         for index in range(count):
             child_ref, left, bottom, right, top, primitive_type = struct.unpack_from(
                 "<I5H", data, start + 34 + index * 14
@@ -475,6 +586,134 @@ def ellipse_primitive_anchors(data: bytes) -> dict[int, tuple[float, float]]:
     return anchors
 
 
+def weld_circle_geometries(data: bytes) -> dict[int, tuple[float, float, float]]:
+    """Return SHA-native centre/radius for paired WELDS-circle companions."""
+
+    ellipse_by_graphic: dict[int, tuple[int, float, float]] = {}
+    ellipse_signature = b"\x59\x00\x2b\x00\x00\x00"
+    for match in re.finditer(re.escape(ellipse_signature), data):
+        start = match.start()
+        if start + 40 > len(data):
+            continue
+        primitive_ref, graphic_ref = struct.unpack_from("<II", data, start + 6)
+        center_x, center_y = struct.unpack_from("<2d", data, start + 24)
+        if 0 <= center_x <= 1 and 0 <= center_y <= 1:
+            ellipse_by_graphic[graphic_ref] = (primitive_ref, center_x, center_y)
+
+    geometries: dict[int, tuple[float, float, float]] = {}
+    companion_signature = b"\x13\x00\x63\x00\x00\x00"
+    for match in re.finditer(re.escape(companion_signature), data):
+        start = match.start()
+        if start + 105 > len(data):
+            continue
+        primitive_ref, graphic_ref = struct.unpack_from("<II", data, start + 6)
+        companion_x, companion_y, radius, _ = struct.unpack_from("<4d", data, start + 35)
+        ellipse = ellipse_by_graphic.get(graphic_ref)
+        if (
+            ellipse is None
+            or primitive_ref != ellipse[0] + 1
+            or not (0 < radius < 0.1)
+            or math.hypot(companion_x - ellipse[1], companion_y - ellipse[2]) >= 1e-9
+        ):
+            continue
+        geometries[graphic_ref] = (
+            companion_x * SHEET_UNIT,
+            companion_y * SHEET_UNIT,
+            radius * SHEET_UNIT,
+        )
+    return geometries
+
+
+def ellipse_graphic_refs(data: bytes) -> dict[int, int]:
+    """Map ``0x59/0x2b`` ellipse primitive refs to their graphic refs."""
+
+    result: dict[int, int] = {}
+    signature = b"\x59\x00\x2b\x00\x00\x00"
+    for match in re.finditer(re.escape(signature), data):
+        start = match.start()
+        if start + 14 > len(data):
+            continue
+        primitive_ref, graphic_ref = struct.unpack_from("<II", data, start + 6)
+        result[primitive_ref] = graphic_ref
+    return result
+
+
+def composite_auxiliary_child_refs(data: bytes, primitive_types: set[int]) -> set[int]:
+    """Return structurally bounded composite children used as line metadata.
+
+    A validated composite record begins on the uint16-aligned ``0x7B`` marker,
+    carries a bounded child count at byte 22, and stores each child as
+    ``<I5H>`` from byte 34.  This helper deliberately exposes only references;
+    type-0/2/11/16 coordinate fields have separate semantics and are never
+    turned into paths here.
+    """
+
+    result: set[int] = set()
+    for start in range(0, len(data) - 34, 2):
+        if data[start : start + 2] != b"\x7b\x00":
+            continue
+        count = struct.unpack_from("<I", data, start + 22)[0]
+        record_length = struct.unpack_from("<I", data, start + 2)[0]
+        if (
+            not 1 <= count <= 100
+            or record_length != 32 + count * 14
+            or start + 6 + record_length > len(data)
+        ):
+            continue
+        for index in range(count):
+            child_ref, _, _, _, _, primitive_type = struct.unpack_from("<I5H", data, start + 34 + index * 14)
+            if primitive_type in primitive_types:
+                result.add(child_ref)
+    return result
+
+
+def composite_visible_children_by_type0(data: bytes) -> dict[int, set[int]]:
+    """Map each type-0 range child to visible siblings inside that range.
+
+    A composite can contain a local symbol outline plus an outgoing leader or
+    connection stroke.  Type-0 bounds cover the local symbol, not necessarily
+    every type-5 sibling.  Restrict the UCI propagation target to children
+    whose double-page envelopes are contained by the type-0 range.
+    """
+
+    result: dict[int, set[int]] = defaultdict(set)
+    for start in range(0, len(data) - 34, 2):
+        if data[start : start + 2] != b"\x7b\x00":
+            continue
+        count = struct.unpack_from("<I", data, start + 22)[0]
+        record_length = struct.unpack_from("<I", data, start + 2)[0]
+        if (
+            not 1 <= count <= 100
+            or record_length != 32 + count * 14
+            or start + 6 + record_length > len(data)
+        ):
+            continue
+        type0_children: list[tuple[int, int, int, int, int]] = []
+        visible_children: list[tuple[int, int, int, int, int]] = []
+        for index in range(count):
+            child_ref, left, bottom, right, top, primitive_type = struct.unpack_from(
+                "<I5H", data, start + 34 + index * 14
+            )
+            if primitive_type == 0:
+                type0_children.append((child_ref, left, bottom, right, top))
+            elif primitive_type in {5, 6}:
+                visible_children.append((child_ref, left, bottom, right, top))
+        for type0_ref, range_left, range_bottom, range_right, range_top in type0_children:
+            # Type-5 endpoints can be reversed. A two-unit tolerance covers
+            # observed uint16 rounding without admitting an outgoing leader.
+            range_left, range_right = sorted((range_left, range_right))
+            range_bottom, range_top = sorted((range_bottom, range_top))
+            for child_ref, left, bottom, right, top in visible_children:
+                left, right = sorted((left, right))
+                bottom, top = sorted((bottom, top))
+                if (
+                    range_left - 2 <= left <= right <= range_right + 2
+                    and range_bottom - 2 <= bottom <= top <= range_top + 2
+                ):
+                    result[type0_ref].add(child_ref)
+    return result
+
+
 def template_line_segments(data: bytes) -> list[tuple[float, float, float, float, int, int]]:
     """Decode the shared title-block line record used by Sheet221.
 
@@ -483,6 +722,11 @@ def template_line_segments(data: bytes) -> list[tuple[float, float, float, float
     """
 
     segments: list[tuple[float, float, float, float, int, int]] = []
+    # The normal four-unit floor rejects binary false positives.  A short raw
+    # 18/32 record is admitted only when its child ref is independently
+    # confirmed by a structurally bounded type-2 composite metadata child.
+    # Ten SHA samples proved this exact child/object-reference relationship.
+    type2_children = composite_auxiliary_child_refs(data, {2})
     signature = b"\x18\x00\x32\x00\x00\x00"
     for match in re.finditer(re.escape(signature), data):
         start = match.start()
@@ -494,7 +738,7 @@ def template_line_segments(data: bytes) -> list[tuple[float, float, float, float
         if not all(-0.03 <= value <= 1.05 for value in (x1, y1, x2, y2)):
             continue
         length = math.hypot(x2 - x1, y2 - y1) * SHEET_UNIT
-        if length < 4:
+        if length <= 0 or (length < 4 and child_ref not in type2_children):
             continue
         segments.append((x1, y1, x2, y2, template_ref, child_ref))
     return segments
@@ -523,25 +767,27 @@ def template_line_object_groups(data: bytes) -> dict[int, int]:
 
 
 def template_images(streams: dict[str, bytes]) -> list[dict[str, object]]:
-    """Read the two BMP template image instances stored in SHA JSite streams."""
+    """Read bounded Sheet221 0x3D placements for embedded BMP resources."""
 
     images: list[dict[str, object]] = []
     template = streams.get("Sheet221", b"")
-    resources = ((690, "JSite690/CONTENTS"), (1402, "JSite1402/CONTENTS"))
-    for resource_id, stream_name in resources:
-        offset = template.find(struct.pack("<I", resource_id))
-        bitmap = streams.get(stream_name)
-        if offset < 72 or bitmap is None or not bitmap.startswith(b"BM"):
+    resource_streams = {690: "JSite690/CONTENTS", 1402: "JSite1402/CONTENTS"}
+    for wrapper in parse_sheet_3d_placement_wrappers(template):
+        resource_id = int(wrapper["jsite_resource_id"])
+        stream_name = resource_streams.get(resource_id)
+        if stream_name is None:
             continue
-        height = struct.unpack_from("<d", template, offset - 72)[0]
-        x = struct.unpack_from("<d", template, offset - 40)[0]
-        y = struct.unpack_from("<d", template, offset - 32)[0]
-        width = struct.unpack_from("<d", template, offset - 24)[0]
+        bitmap = streams.get(stream_name)
+        if bitmap is None or not bitmap.startswith(b"BM"):
+            continue
+        x, y = (float(value) for value in wrapper["placement_origin"])
+        width, height = (float(value) for value in wrapper["placement_size"])
         if not all(0 < value < 1 for value in (x, y, width, height)):
             continue
         images.append(
             {
                 "resource_id": resource_id,
+                "wrapper_primitive_ref": int(wrapper["primitive_ref"]),
                 "x": x,
                 "y": y,
                 "width": width,
@@ -596,7 +842,7 @@ def template_text_records(data: bytes, psm: bytes) -> list[dict[str, object]]:
 
 
 def template_bound_text(data: bytes, revision_data: bytes) -> list[dict[str, object]]:
-    """Resolve Sheet221 revision bindings using the SHA Revision XML stream."""
+    """Resolve bounded Sheet221 Revision bindings using the SHA Revision stream."""
 
     revision = ET.fromstring(revision_data.decode("utf-8"))
     current = revision.find("RevisionRecord")
@@ -604,11 +850,11 @@ def template_bound_text(data: bytes, revision_data: bytes) -> list[dict[str, obj
         return []
     values = {child.tag: child.text or "" for child in current}
     records: list[dict[str, object]] = []
-    pattern = rb'<\x00\?\x00x\x00m\x00l\x00.*?<\x00/\x00b\x00o\x00d\x00y\x00>\x00'
-    for match in re.finditer(pattern, data):
-        expression = match.group().decode("utf-16le", errors="ignore")
+    bindings = parse_sheet221_template_text_records(data)["revision_binding_records"]
+    for binding in bindings:
+        expression = str(binding["binding_expression"])
         field = re.search(r"/RevisionRecord\[[^]]+\]/([^\"<]+)", expression)
-        if field is None or match.end() + 32 > len(data):
+        if field is None:
             continue
         # Only the current record (1+0 or last()-0) has a value in this SHA.
         if "1+0" not in expression and "last()-0" not in expression:
@@ -616,9 +862,19 @@ def template_bound_text(data: bytes, revision_data: bytes) -> list[dict[str, obj
         text = values.get(field.group(1), "")
         if not text:
             continue
-        x, y = struct.unpack_from("<2d", data, match.end())
+        x, y = float(binding["x"]), float(binding["y"])
         if 0 <= x <= 1 and 0 <= y <= 1:
-            records.append({"text": text, "x": x, "y": y, "field": field.group(1)})
+            records.append(
+                {
+                    "text": text,
+                    "x": x,
+                    "y": y,
+                    "field": field.group(1),
+                    "graphic_ref": int(binding["child_ref"]),
+                    "style_ref": int(binding["style_ref"]),
+                    "page_layer_ref": int(binding["page_layer_ref"]),
+                }
+            )
     return records
 
 
@@ -842,11 +1098,31 @@ def text_records(data: bytes) -> list[dict[str, object]]:
                     break
         if not (-1 < x < 2 and -1 < y < 2):
             continue
+        graphic_ref = struct.unpack_from("<I", data, text_start - 24)[0]
+        style_ref = struct.unpack_from("<I", data, text_start - 16)[0]
+        page_layer_ref: int | None = None
+        # Later physical Sheet text records are explicitly framed by 0x004d.
+        # Their old ``text_start - 16`` field is a page-layer object, not the
+        # style. Only replace it after the full record-length equation proves
+        # this concrete layout; other text formats retain the conservative
+        # legacy offsets above.
+        record_start = text_start - 30
+        if record_start >= 0 and data[record_start : record_start + 2] == b"\x4d\x00":
+            record_length = struct.unpack_from("<I", data, record_start + 2)[0]
+            character_count = struct.unpack_from("<H", data, record_start + 28)[0]
+            if (
+                record_length == 60 + 2 * character_count
+                and character_count == len(decoded)
+                and record_start + 6 + record_length <= len(data)
+            ):
+                style_ref = struct.unpack_from("<I", data, record_start + 20)[0]
+                page_layer_ref = struct.unpack_from("<I", data, record_start + 14)[0]
         records.append(
             {
                 "text": decoded.strip(),
-                "graphic_ref": struct.unpack_from("<I", data, text_start - 24)[0],
-                "style_ref": struct.unpack_from("<I", data, text_start - 16)[0],
+                "graphic_ref": graphic_ref,
+                "style_ref": style_ref,
+                "page_layer_ref": page_layer_ref,
                 "x": x,
                 "y": y,
                 "direction_x": direction_x,
@@ -1123,9 +1399,16 @@ def render(
     if selected_name is None:
         raise ValueError(f"ISO page {wanted_page} was not found in {sha_path.name}")
 
-    dynamic = dynamic_graphics(streams.get("Unclustered Dynamic Attributes", b""))
+    # Use bounded PipeLine Info records. The historical next-marker scan can
+    # mistake trailing metadata for a graphic reference on the last record.
+    dynamic = bounded_dynamic_graphics_by_uci(
+        parse_dynamic_attribute_property_records(
+            streams.get("Unclustered Dynamic Attributes", b"")
+        )
+    )
     psm = streams.get("PSMcluster0", b"")
     sheet = sheets[selected_name]
+    psm_direct_by_child = psm_direct_uci_by_child(streams, sheet, dynamic)
     # Sheet6 carries the shared physical-page declaration in the supplied
     # multi-sheet SHAs. A later Sheet may only contain local graphics records.
     shared_viewbox = declared_sheet_viewbox(sheets.get("Sheet6", b""))
@@ -1368,6 +1651,8 @@ def render(
     ellipses = psm_ellipses(sheet, psm)
     ellipse_anchor_by_ref = ellipse_anchors(sheet)
     ellipse_primitive_anchor_by_ref = ellipse_primitive_anchors(sheet)
+    ellipse_graphic_by_primitive = ellipse_graphic_refs(sheet)
+    weld_circle_geometry_by_graphic = weld_circle_geometries(sheet)
     ellipse_text_offsets: list[tuple[tuple[int, int, int, int], float, float]] = []
     for ref, (left, bottom, right, top) in ellipses:
         anchor = ellipse_primitive_anchor_by_ref.get(ref)
@@ -1381,6 +1666,8 @@ def render(
         sheet, psm, uci_regions, alternate_segments
     )
     arcs = composite_arcs(sheet)
+    pipe_arcs = pipe_arc_records(sheet)
+    style_widths = line_style_widths(style_data)
     manifest_segments: list[dict[str, object]] = []
     elements.append('<g fill="none" stroke="#17202a" stroke-width="8" stroke-linecap="square" shape-rendering="geometricPrecision">')
     for (x1, y1, x2, y2, ref, child_ref), family in render_segments:
@@ -1400,7 +1687,9 @@ def render(
             continue
         page_x1, page_y1 = x1 * SHEET_UNIT, y1 * SHEET_UNIT
         page_x2, page_y2 = x2 * SHEET_UNIT, y2 * SHEET_UNIT
-        exact_ucis = set(uci_by_object_ref.get(ref, [])) | set(graphics.get(child_ref, []))
+        raw_exact_ucis = set(uci_by_object_ref.get(ref, [])) | set(graphics.get(child_ref, []))
+        psm_exact_ucis = set(psm_direct_by_child.get(child_ref, []))
+        exact_ucis = raw_exact_ucis | psm_exact_ucis
         spatial_ucis = {
             str(region["uci"])
             for region in uci_regions
@@ -1408,7 +1697,15 @@ def render(
         }
         ucis = sorted(exact_ucis | spatial_ucis)
         uci = ",".join(ucis)
-        basis = "direct_object_ref" if exact_ucis else "psm_bbox_spatial" if spatial_ucis else "sheet_decoration"
+        basis = (
+            "direct_psm_relation_201"
+            if psm_exact_ucis
+            else "direct_object_ref"
+            if raw_exact_ucis
+            else "psm_bbox_spatial"
+            if spatial_ucis
+            else "sheet_decoration"
+        )
         manifest_segments.append(
             {
                 "graphic_ref_low16": f"0x{ref:04X}",
@@ -1447,33 +1744,68 @@ def render(
                 f'x2="{page_x2:.1f}" y2="{svg_y(page_y2):.1f}" '
                 f'data-graphic="0x{ref:04X}" data-child="0x{child_ref:08X}"{width_attr}{semantic}{object_group}/>'
             )
+    for arc in pipe_arcs:
+        center_x = float(arc["center_x"])
+        center_y = float(arc["center_y"])
+        radius = float(arc["radius"])
+        start_angle = float(arc["start_angle"])
+        end_angle = float(arc["end_angle"])
+        delta_angle = float(arc["delta_angle"])
+        start_x = (center_x + radius * math.cos(start_angle)) * SHEET_UNIT
+        start_y = (center_y + radius * math.sin(start_angle)) * SHEET_UNIT
+        end_x = (center_x + radius * math.cos(end_angle)) * SHEET_UNIT
+        end_y = (center_y + radius * math.sin(end_angle)) * SHEET_UNIT
+        graphic_ref = int(arc["graphic_ref"])
+        primitive_ref = int(arc["primitive_ref"])
+        ucis = sorted(set(graphics.get(graphic_ref, [])))
+        semantic = f' data-uci="{html.escape(",".join(ucis))}"' if ucis else ""
+        width = style_widths.get(int(arc["style_ref"]), 8.0)
+        # Page coordinates are y-up, while SVG is y-down, so the SVG sweep
+        # flag reverses the mathematical signed angle direction.
+        sweep_flag = 0 if delta_angle > 0 else 1
+        elements.append(
+            f'<path d="M {start_x:.1f} {svg_y(start_y):.1f} A {radius * SHEET_UNIT:.1f} '
+            f'{radius * SHEET_UNIT:.1f} 0 0 {sweep_flag} {end_x:.1f} {svg_y(end_y):.1f}" '
+            f'data-layer="sha-pipe-arc" data-graphic="0x{graphic_ref:08X}" '
+            f'data-primitive="0x{primitive_ref:08X}" stroke-width="{width:.4f}"{semantic}/>'
+        )
     elements.append("</g>")
     if connection_points:
         elements.append('<g id="sha-connection-points" fill="#17202a" stroke="none">')
         for region in connection_points:
             left, bottom, right, top = region["bbox"]
             ref = int(region["graphic_ref"])
-            center_x, center_y = ellipse_anchor_by_ref.get(
-                ref, ((left + right) / 2, (bottom + top) / 2)
+            geometry = weld_circle_geometry_by_graphic.get(ref)
+            center_x, center_y = (
+                (geometry[0], geometry[1])
+                if geometry is not None
+                else ellipse_anchor_by_ref.get(ref, ((left + right) / 2, (bottom + top) / 2))
             )
+            radius = geometry[2] if geometry is not None else min(right - left, top - bottom) / 2
             elements.append(
                 f'<circle cx="{center_x:.1f}" cy="{PAGE_HEIGHT - center_y:.1f}" '
-                f'r="{min(right - left, top - bottom) / 2:.1f}" '
+                f'r="{radius:.1f}" '
                 f'data-layer="sha-connection-point" data-uci="{html.escape(str(region["uci"]))}" '
-                f'data-mapping="{"sha-ellipse-anchor" if ref in ellipse_anchor_by_ref else "sha-psm-micro-uci"}"/>'
+                f'data-mapping="{"sha-weld-circle-companion" if geometry is not None else "sha-ellipse-anchor" if ref in ellipse_anchor_by_ref else "sha-psm-micro-uci"}"/>'
             )
         elements.append("</g>")
     if ellipses:
         elements.append('<g id="sha-ellipse-geometry" fill="none" stroke="#17202a" stroke-width="8">')
         for ref, (left, bottom, right, top) in ellipses:
-            center_x, center_y = ellipse_primitive_anchor_by_ref.get(
-                ref, ((left + right) / 2, (bottom + top) / 2)
+            graphic_ref = ellipse_graphic_by_primitive.get(ref)
+            geometry = weld_circle_geometry_by_graphic.get(graphic_ref) if graphic_ref is not None else None
+            center_x, center_y = (
+                (geometry[0], geometry[1])
+                if geometry is not None
+                else ellipse_primitive_anchor_by_ref.get(ref, ((left + right) / 2, (bottom + top) / 2))
             )
+            radius_x = geometry[2] if geometry is not None else (right - left) / 2
+            radius_y = geometry[2] if geometry is not None else (top - bottom) / 2
             elements.append(
                 f'<ellipse cx="{center_x:.1f}" cy="{PAGE_HEIGHT - center_y:.1f}" '
-                f'rx="{(right - left) / 2:.1f}" ry="{(top - bottom) / 2:.1f}" '
+                f'rx="{radius_x:.1f}" ry="{radius_y:.1f}" '
                 f'data-layer="sha-ellipse" data-graphic="0x{ref:04X}" '
-                f'data-mapping="{"sha-primitive-anchor-plus-psm-size" if ref in ellipse_primitive_anchor_by_ref else "sha-psm-envelope"}"/>'
+                f'data-mapping="{"sha-weld-circle-companion" if geometry is not None else "sha-primitive-anchor-plus-psm-size" if ref in ellipse_primitive_anchor_by_ref else "sha-psm-envelope"}"/>'
             )
         elements.append("</g>")
     # StyleCluster names the engineering-annotation family as Courier New.
@@ -1984,6 +2316,7 @@ def render(
                     "sha_template_revision_count": len(revision_text),
                     "sha_template_note_count": len(notes),
                     "sha_connection_point_count": len(connection_points),
+                    "psm_direct_relation_201_child_count": len(psm_direct_by_child),
                     "sha_connection_points": [
                         {
                             "uci": str(region["uci"]),

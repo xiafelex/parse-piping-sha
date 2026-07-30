@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="780" height="660" viewBox="0 0 780 660">
+<rect width="100%" height="100%" fill="#f5f0e7"/>
+<text x="20" y="23" font-family="monospace" font-size="13">SHA-only StyleCluster local resource atlas (not physical ISO placement)</text>
+<g transform="translate(0 0)"><rect x="12" y="18" width="205" height="174" fill="#fffdf7" stroke="#8b7d6b"/>
+<text x="20" y="36" font-family="monospace" font-size="10">group 8211</text>
+<path d="M 137.41 81.47 A 57.80 57.80 0 0 0 46.57 80.02" fill="none" stroke="#28784c" stroke-width="1.3"/>
+<line x1="109.72" y1="120.25" x2="137.41" y2="81.47" stroke="#bd4b35" stroke-width="1.3"/>
+<path d="M 109.73 120.25 A 60.29 60.29 0 0 0 152.94 219.10" fill="none" stroke="#28784c" stroke-width="1.3"/>
+<path d="M 76.27 120.25 A 60.29 60.29 0 1 0 33.06 219.10" fill="none" stroke="#28784c" stroke-width="1.3"/>
+<line x1="76.28" y1="120.25" x2="46.57" y2="80.02" stroke="#bd4b35" stroke-width="1.3"/>
+</g>
+<g transform="translate(0 0)"><rect x="262" y="18" width="205" height="174" fill="#fffdf7" stroke="#8b7d6b"/>
+<text x="270" y="36" font-family="monospace" font-size="10">group 8230</text>
+<path d="M 357.54 74.08 L 280.00 74.08 L 280.00 171.00 L 357.54 171.00 L 357.54 74.08" fill="#d9e9f4" stroke="#1f5c82" stroke-width="1.3"/>
+<path d="M 280.00 64.38 L 357.54 64.38 L 357.54 45.00 L 280.00 45.00 L 280.00 64.38" fill="#d9e9f4" stroke="#1f5c82" stroke-width="1.3"/>
+</g>
+<g transform="translate(0 0)"><rect x="512" y="18" width="205" height="174" fill="#fffdf7" stroke="#8b7d6b"/>
+<text x="520" y="36" font-family="monospace" font-size="10">group 8234</text>
+<path d="M 530.00 74.08 L 568.77 74.08 L 568.77 171.00 L 530.00 171.00 L 530.00 74.08" fill="#d9e9f4" stroke="#1f5c82" stroke-width="1.3"/>
+<path d="M 530.00 64.38 L 568.77 64.38 L 568.77 45.00 L 530.00 45.00 L 530.00 64.38" fill="#d9e9f4" stroke="#1f5c82" stroke-width="1.3"/>
+</g>
+<g transform="translate(0 0)"><rect x="12" y="223" width="205" height="174" fill="#fffdf7" stroke="#8b7d6b"/>
+<text x="20" y="241" font-family="monospace" font-size="10">group 8238</text>
+<path d="M 30.00 279.08 L 68.77 279.08 L 68.77 376.00 L 30.00 376.00 L 30.00 279.08" fill="#d9e9f4" stroke="#1f5c82" stroke-width="1.3"/>
+<path d="M 30.00 269.38 L 68.77 269.38 L 68.77 250.00 L 30.00 250.00 L 30.00 269.38" fill="#d9e9f4" stroke="#1f5c82" stroke-width="1.3"/>
+</g>
+<g transform="translate(0 0)"><rect x="262" y="223" width="205" height="174" fill="#fffdf7" stroke="#8b7d6b"/>
+<text x="270" y="241" font-family="monospace" font-size="10">group 8261</text>
+<line x1="282.05" y1="250.00" x2="401.03" y2="250.00" stroke="#bd4b35" stroke-width="1.3"/>
+<line x1="294.52" y1="250.23" x2="280.00" y2="277.38" stroke="#bd4b35" stroke-width="1.3"/>
+<line x1="310.35" y1="250.83" x2="298.48" y2="272.44" stroke="#bd4b35" stroke-width="1.3"/>
+<line x1="328.16" y1="250.83" x2="308.38" y2="286.65" stroke="#bd4b35" stroke-width="1.3"/>
+<line x1="345.97" y1="250.83" x2="334.10" y2="274.91" stroke="#bd4b35" stroke-width="1.3"/>
+<line x1="365.11" y1="251.45" x2="346.63" y2="285.41" stroke="#bd4b35" stroke-width="1.3"/>
+<line x1="386.21" y1="250.23" x2="373.67" y2="271.21" stroke="#bd4b35" stroke-width="1.3"/>
+<line x1="398.09" y1="250.23" x2="378.96" y2="286.03" stroke="#bd4b35" stroke-width="1.3"/>
+<line x1="288.58" y1="250.83" x2="326.18" y2="283.55" stroke="#bd4b35" stroke-width="1.3"/>
+<line x1="301.77" y1="251.45" x2="328.16" y2="271.82" stroke="#bd4b35" stroke-width="1.3"/>
+<line x1="318.26" y1="250.83" x2="358.50" y2="283.55" stroke="#bd4b35" stroke-width="1.3"/>
+<line x1="336.74" y1="250.83" x2="363.79" y2="274.30" stroke="#bd4b35" stroke-width="1.3"/>
+<line x1="353.23" y1="250.83" x2="380.93" y2="274.91" stroke="#bd4b35" stroke-width="1.3"/>
+<line x1="373.67" y1="250.83" x2="406.00" y2="280.47" stroke="#bd4b35" stroke-width="1.3"/>
+</g>
+<g transform="translate(0 0)"><rect x="512" y="223" width="205" height="174" fill="#fffdf7" stroke="#8b7d6b"/>
+<text x="520" y="241" font-family="monospace" font-size="10">group 8288</text>
+<path d="M 607.54 279.08 L 530.00 279.08 L 530.00 376.00 L 607.54 376.00 L 607.54 279.08" fill="#d9e9f4" stroke="#1f5c82" stroke-width="1.3"/>
+<path d="M 530.00 269.38 L 607.54 269.38 L 607.54 250.00 L 530.00 250.00 L 530.00 269.38" fill="#d9e9f4" stroke="#1f5c82" stroke-width="1.3"/>
+</g>
+<g transform="translate(0 0)"><rect x="12" y="428" width="205" height="174" fill="#fffdf7" stroke="#8b7d6b"/>
+<text x="20" y="446" font-family="monospace" font-size="10">group 8299</text>
+<circle cx="50.59" cy="560.41" r="20.59" fill="none" stroke="#7c3f99" stroke-width="1.3"/>
+<path d="M 47.85 465.97 L 50.59 455.00 L 53.33 465.97 L 47.85 465.97" fill="#d9e9f4" stroke="#1f5c82" stroke-width="1.3"/>
+<line x1="50.59" y1="455.00" x2="50.59" y2="560.41" stroke="#bd4b35" stroke-width="1.3"/>
+<path d="M 134.01 557.66 L 144.98 560.41 L 134.01 563.15 L 134.01 557.66" fill="#d9e9f4" stroke="#1f5c82" stroke-width="1.3"/>
+<line x1="144.98" y1="560.41" x2="50.59" y2="560.41" stroke="#bd4b35" stroke-width="1.3"/>
+<circle cx="114.17" cy="541.82" r="2.5" fill="#555"/><text x="118.17" y="538.82" font-family="Arial" font-size="8">Arial anchor</text>
+<circle cx="58.23" cy="472.45" r="2.5" fill="#555"/><text x="62.23" y="469.45" font-family="Arial" font-size="8">Arial anchor</text>
+</g>
+<g transform="translate(0 0)"><rect x="262" y="428" width="205" height="174" fill="#fffdf7" stroke="#8b7d6b"/>
+<text x="270" y="446" font-family="monospace" font-size="10">group 8312</text>
+<line x1="287.50" y1="455.00" x2="287.50" y2="581.00" stroke="#bd4b35" stroke-width="1.3"/>
+<line x1="280.00" y1="455.00" x2="280.00" y2="581.00" stroke="#bd4b35" stroke-width="1.3"/>
+<line x1="280.00" y1="455.00" x2="287.50" y2="455.00" stroke="#bd4b35" stroke-width="1.3"/>
+<line x1="280.00" y1="581.00" x2="287.50" y2="581.00" stroke="#bd4b35" stroke-width="1.3"/>
+<line x1="280.00" y1="518.00" x2="287.50" y2="518.00" stroke="#bd4b35" stroke-width="1.3"/>
+</g>
+<g transform="translate(0 0)"><rect x="512" y="428" width="205" height="174" fill="#fffdf7" stroke="#8b7d6b"/>
+<text x="520" y="446" font-family="monospace" font-size="10">group 8326</text>
+<path d="M 494.20 458.54 A 35.80 35.80 0 0 0 549.64 428.28" fill="none" stroke="#28784c" stroke-width="1.3"/>
+<path d="M 543.88 426.85 A 37.48 37.48 0 0 0 583.10 420.44" fill="none" stroke="#28784c" stroke-width="1.3"/>
+<path d="M 577.50 421.02 A 44.39 44.39 0 0 0 634.78 425.68" fill="none" stroke="#28784c" stroke-width="1.3"/>
+<path d="M 629.80 425.10 A 50.69 50.69 0 0 0 702.02 447.23" fill="none" stroke="#28784c" stroke-width="1.3"/>
+</g>
+</svg>

@@ -25,6 +25,10 @@ The collaborative samples, SHA-derived artifacts, and Chinese research history
 are in [`research/README.md`](research/README.md) and
 [`docs/RESEARCH_JOURNEY_CN.md`](docs/RESEARCH_JOURNEY_CN.md).
 
+The separate DWG/DXF vector and weld-recognition workflow is in
+[`skills/parse-piping-dwg-dxf/SKILL.md`](skills/parse-piping-dwg-dxf/SKILL.md).
+It deliberately does not reuse SHA UCI/PSM rules.
+
 ## 2026-07 reconstruction handoff
 
 The plain-language Chinese project review, including the SHA architecture,

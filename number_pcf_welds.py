@@ -15,7 +15,11 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from analyze_iso_split import dynamic_graphics, read_sha_streams
+from analyze_iso_split import read_sha_streams
+from analyze_psm_hierarchy import (
+    bounded_dynamic_graphics_by_uci,
+    parse_dynamic_attribute_property_records,
+)
 from inject_sha_weld_callouts import point_segment_distance, sheet_streams
 from sha_to_svg_prototype import (
     composite_segments,
@@ -105,7 +109,11 @@ def parse_weld_blocks(pcf_path: Path) -> tuple[list[str], list[WeldBlock]]:
 def sha_weld_points(sha_path: Path, distance_threshold: float) -> dict[str, dict[str, object]]:
     streams = read_sha_streams(sha_path)
     sheets = sheet_streams(streams, None)
-    dynamic = dynamic_graphics(streams.get("Unclustered Dynamic Attributes", b""))
+    dynamic = bounded_dynamic_graphics_by_uci(
+        parse_dynamic_attribute_property_records(
+            streams.get("Unclustered Dynamic Attributes", b"")
+        )
+    )
     psm = streams.get("PSMcluster0", b"")
 
     graphic_to_uci = {
