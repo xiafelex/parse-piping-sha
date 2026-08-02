@@ -156,6 +156,11 @@ pipe 相对长度/方向。先得到“本 DXF 页是 IDF 全图的哪个子图�
 以上方向独立、且最佳变换相对次优变换有明确差值的样本时，三度臂只能输出条件候选或
 `unresolved`。
 
+同类重复的 `junction`、`elbow`、`reducer` 也不能默认按 DXF 页面坐标的相对方向配对；
+`positional_seed_pairs` 只有在显式传入已审计的 `--axis-transform` 后才可使用。未校准时，
+唯一构件类别和已锁定的二度链仍可传播，但重复 frame 必须保留为未解候选，不能以默认
+`identity` 方向误建 IDF frame→DXF frame 对应。
+
 `IDF41_OUTLET_TO_UNIQUE_SUPPORT_WELD_V1` 是三度臂的另一条、**不依赖投影方向**的窄规则：
 原始 IDF `41` 拓扑必须明确给出且仅给出一个 `outlet_leg`；已配对 DXF `branch/tee` 的三条
 incident pipe 中必须恰有一条 `SUPPORT_WELD_PIPE`，才可输出该 `I### → DXF pipe` 的 `medium`

@@ -111,8 +111,10 @@ def unique_seed_pairs(idf_frames: list[dict], dxf_frames: list[dict]):
     return result
 
 
-def positional_seed_pairs(idf_frames: list[dict], dxf_frames: list[dict]):
-    """Match repeated component frames through their relative projected axes."""
+def positional_seed_pairs(idf_frames: list[dict], dxf_frames: list[dict], transform_name: str | None):
+    """Match repeated frames only after an audited IDF→DXF axis calibration."""
+    if transform_name is None:
+        return []
     left_groups, right_groups = defaultdict(list), defaultdict(list)
     for frame in idf_frames:
         kind = category(frame, 'idf')
@@ -133,6 +135,7 @@ def positional_seed_pairs(idf_frames: list[dict], dxf_frames: list[dict]):
             for i, j in itertools.combinations(range(len(left)), 2):
                 u = [left[j]['centre'][axis] - left[i]['centre'][axis] for axis in range(2)]
                 v = [permutation[j]['centre'][axis] - permutation[i]['centre'][axis] for axis in range(2)]
+                u = axis_transform(u, transform_name)
                 un, vn = math.hypot(*u), math.hypot(*v)
                 if un and vn:
                     score += (u[0] * v[0] + u[1] * v[1]) / (un * vn)
@@ -140,7 +143,7 @@ def positional_seed_pairs(idf_frames: list[dict], dxf_frames: list[dict]):
         ranked.sort(key=lambda item: item[0], reverse=True)
         if ranked[0][0] <= 0 or (len(ranked) > 1 and ranked[0][0] - ranked[1][0] < 1.0):
             continue
-        seeds.extend((idf['id'], dxf['id'], 'canonical_relative_frame_direction')
+        seeds.extend((idf['id'], dxf['id'], 'audited_axis_relative_frame_direction')
                      for idf, dxf in zip(left, ranked[0][1]))
     return seeds
 
@@ -204,7 +207,7 @@ def main() -> None:
 
     for item in unique_seed_pairs(idf_frames, dxf_frames):
         add_frame(*item)
-    for item in positional_seed_pairs(idf_frames, dxf_frames):
+    for item in positional_seed_pairs(idf_frames, dxf_frames, args.axis_transform):
         add_frame(*item)
 
     dxf_handles = {}
