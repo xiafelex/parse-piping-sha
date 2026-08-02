@@ -146,13 +146,25 @@ pipe 相对长度/方向。先得到“本 DXF 页是 IDF 全图的哪个子图�
 直接接触可播种一条 `medium` pipe 候选。每次传播必须保留未解项，不得将“页范围已定位”
 误报为“全部 I### 已定位”。
 
+`propagate_page_frame_anchors_v1.py` 的三度臂方向匹配默认**关闭**；必须显式提供
+`--axis-transform <identity|flip_x|flip_y|...>`，且该变换只能来自同一项目的独立审计锚点。
+不可用“本次由三通方向推得的 I###→pipe”反向证明该镜像/旋转；那是循环证据。未获得两个
+以上方向独立、且最佳变换相对次优变换有明确差值的样本时，三度臂只能输出条件候选或
+`unresolved`。
+
+运行 `score_page_pipe_correspondence_candidates_v1.py` 生成每个 `I###` 的候选矩阵：匹配的
+component-frame 邻接、八种轴向变换下的方向余弦、现有独立锚点、候选分数与分差。该脚本
+只把已审计 outlet/唯一构件链计入“校准证据”；`degree3_projected_arm_direction` 只标为
+`conditional_medium_candidate`。没有唯一轴向校准时，方向余弦仅供复核，不能增加候选的
+匹配分数或产生最终编号。
+
 这是**带属性的几何误差容忍子图匹配**，而非按文件顺序的链匹配：IDF/DXF 的节点属性包括
 构件类、度数、管径变化和端点角色；边属性包括连接关系、三轴方向、相对长度和页内坐标。
 先收缩已证明只是 CAD 分割的低重要度节点，再保留 weld/support/branch 为硬边界；这相当于
 homeomorphic/graph-edit matching 的受限工程版本。重复的三通或弯头不以编号顺序消歧：将
-IDF connector centre 作标准轴测投影，按项目验证的 DXF `Y = -IDF_Y` 轴向校准比较同类构件
-之间的相对方向；仅当最佳排列与第二名有明确分差时播种 frame/pipe。该校准是项目级经验，
-须以已审计的 reducer/elbow 链复核，不能跨项目盲用。
+IDF connector centre 作标准轴测投影，并在 `identity/flip/swap` 的离散轴向变换中比较同类
+构件之间的相对方向；仅当变换本身已有独立审计证据、且臂排列最佳方案与第二名有明确分差
+时播种 frame/pipe。该校准是项目级经验，须以已审计的 reducer/elbow 链复核，不能跨项目盲用。
 
 对传播结果调用 `render_idf_dxf_match_overlay.py <source.dxf> <propagation.json>
 --dxf-pipe-topology <topology.json> --output <png>`。一个 semantic pipe 可包含多个 source

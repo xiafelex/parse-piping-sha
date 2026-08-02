@@ -66,6 +66,25 @@ def outward_vector(centre, endpoints):
     return [value / length for value in vector] if length else None
 
 
+def axis_transform(vector, name: str | None):
+    """Apply an *audited* project-level IDF→DXF axis transform.
+
+    The drawing-sheet orientation is not an intrinsic IDF property.  A caller
+    must therefore supply a calibration explicitly; ``None`` deliberately
+    prevents degree-three arm ordering instead of silently using a mirror
+    observed in another page/project.
+    """
+    if name is None:
+        return None
+    x, y = vector
+    transforms = {
+        'identity': (x, y), 'flip_x': (-x, y), 'flip_y': (x, -y),
+        'flip_xy': (-x, -y), 'swap': (y, x), 'swap_flip_x': (-y, x),
+        'swap_flip_y': (y, -x), 'swap_flip_xy': (-y, -x),
+    }
+    return list(transforms[name])
+
+
 def chosen_range(cover: dict, page: int) -> set[str]:
     selected = next(item for item in cover['best']['page_ranges'] if item['page'] == page)
     start, end = map(number, selected['idf_range'])
@@ -135,6 +154,10 @@ def main() -> None:
                         help='optional direct branch outlet audit')
     parser.add_argument('--dxf-pipe-topology', type=Path,
                         help='optional source pipe/handle index for audited outlet anchors')
+    parser.add_argument('--axis-transform', choices=['identity', 'flip_x', 'flip_y', 'flip_xy',
+                                                      'swap', 'swap_flip_x', 'swap_flip_y', 'swap_flip_xy'],
+                        help='audited project-level IDF canonical projection → DXF axis transform; '
+                             'required before degree-three arm-direction propagation')
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     graph = json.loads(args.component_frame_graph.read_text())
@@ -189,7 +212,26 @@ def main() -> None:
         dxf_geometry = {}
     if args.anchor_audit and args.anchor_audit.exists():
         audit = json.loads(args.anchor_audit.read_text())
-        for direct in audit.get('direct_anchor_matches', []):
+        direct_rows = list(audit.get('direct_anchor_matches', []))
+        # The direct-contact detector emits a deliberately minimal record
+        # (I### + DXF handles), while an older comparison script emits its
+        # already-resolved frame pair.  Adapt the minimal, vector-audited
+        # record here using only incident-frame topology; do not re-run any
+        # component classifier or infer from proximity/text.
+        if not direct_rows:
+            for candidate in audit.get('matches', []):
+                outlet = candidate.get('idf')
+                wanted = set(candidate.get('dxf_handles', []))
+                possible_idf = [frame_id for frame_id, pipes in idf_frame_pipes.items()
+                                if outlet in pipes and category(idf_by_id[frame_id], 'idf') == 'junction']
+                possible_dxf = [frame_id for frame_id, pipes in dxf_frame_pipes.items()
+                                if category(dxf_by_id[frame_id], 'dxf') == 'junction' and
+                                any(wanted <= dxf_handles.get(pipe, set()) for pipe in pipes)]
+                if len(possible_idf) == len(possible_dxf) == 1:
+                    direct_rows.append({'idf_anchor': possible_idf[0], 'dxf_anchor': possible_dxf[0],
+                                        'outlet_idf_pipe': outlet, 'outlet_dxf_handles': sorted(wanted),
+                                        'evidence': 'adapted_vector_audited_branch_outlet'})
+        for direct in direct_rows:
             if direct['idf_anchor'] not in idf_by_id or direct['dxf_anchor'] not in dxf_by_id:
                 continue
             # A unique category seed may already have inserted this same frame;
@@ -225,12 +267,9 @@ def main() -> None:
                         v = outward_vector(dxf_by_id[dxf_frame_id].get('centre'), dxf_geometry.get(dxf_pipe, []))
                         if not u or not v:
                             valid = False; break
-                        # IDF canonical axonometric projection and DXF model
-                        # coordinates use opposite vertical signs.  CWR's
-                        # independently audited reducer/elbow chain provides
-                        # the project-local calibration; no sheet sequence is
-                        # involved in this transform.
-                        u[1] *= -1
+                        u = axis_transform(u, args.axis_transform)
+                        if u is None:
+                            valid = False; break
                         score += u[0] * v[0] + u[1] * v[1]
                     if valid:
                         candidates.append((score, permutation))
@@ -281,6 +320,7 @@ def main() -> None:
     result = {
         'algorithm': 'PROPAGATE_PAGE_FRAME_ANCHORS_V1', 'line_key': graph['line_key'], 'page': args.page,
         'policy': 'selected page range + component-frame propagation only; no CONT and no page-order matching',
+        'axis_transform': args.axis_transform,
         'idf_range': sorted(allowed, key=number),
         'frame_matches': [{'idf_frame': left, 'dxf_frame': right,
                            'evidence': frame_evidence[left]} for left, right in sorted(frame_map.items())],
