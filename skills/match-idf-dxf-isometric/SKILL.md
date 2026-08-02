@@ -39,6 +39,8 @@ description: Reconcile IDF piping straight-pipe records with already classified 
 `scripts/summarize_multi_page_100_counts.py <page-inventory.json> <page-pipe-counts.jsonl> <idf-root> --output <summary.json>`。
 
 - 输出每条多页线的 IDF 有效 `100` 数、各页已识别最终直管片段总数、支架相关片段数、零直管页和缺失统计页。
+- 若同一文件名管线键命中多个 IDF，输出全部 `idf_100_candidates` 并将
+  `idf_100_count` 置为 `null`；**禁止取最大值、最小值或目录顺序第一份**作为匹配基准。先用规格和后续拓扑锚点选定 IDF，再进入数量比较。
 - **不得**把这两个总数直接视为同一指标：DXF 总数会受页面切分和 `SUPPORT_*` 片段影响。结果相等仅意味着该线可优先作为“页面分区算法”的验证样本，不能直接宣称已逐条对应。
 - 若存在缺失统计页或未解决直管，停止在数量审计并先补齐 DXF 识别；若所有页已统计，下一步才是为每条 IDF `100` 估计候选页集合。
 
@@ -53,6 +55,21 @@ description: Reconcile IDF piping straight-pipe records with already classified 
 - 未解决直管数量。
 
 `EMPTY`、`SUPPORT_*`、`ARROW_PIPE` 的出现只表示需要复核，**不得**直接从 DXF 总数扣除或默认合并。只有同一明确续页边上、端头语义一致、几何长度一致，且最好保留相同 source handle 的候选，才可标为高置信“跨页重复候选”；即使如此也先记录，待图形复核后才能调整 `100` 统计。
+
+### 多页拓扑锚点（数量相等后仍必须执行）
+
+多页线即使 IDF `100` 数和 DXF 最终直管数相等，也**不能**按 IDF 文件顺序与 DXF 页序强行配对。先运行：
+
+- `scripts/build_idf_100_topology.py <idf> --output <idf-topology.json>`；
+- `scripts/summarize_dxf_semantic_components.py <page.dxf> --adapter <dxf-semantic-adapter.py> --output <page-topology.json>`。
+
+后者只序列化已有的 DXF 语义分类器输出；它绝不包含或替代图元识别规则。
+
+1. 在当前已验证 IDF 样本中，记录码 `41` 的两端构成分支/支管锚点：三度端为 `junction`，另一端为 `outlet_leg`。这是一条**待继续跨项目验证的 IDF 观察规则**，不是对所有 IDF 代码的无条件解释。
+2. 码 `55` 虽也可出现在普通两端内联几何中，不能单独用于判为分支；以它为锚点会产生已知假阳性。
+3. 先比较 IDF 的 `junction` 数与 DXF 已确认 `branch`/`tee` 数。数量不一致时，输出 `branch_anchor_mismatch`，保留候选，禁止以直管总数相等为由强配。
+4. 数量一致时，从稀有分支锚点向各 leg 扩展，比较相邻 `100` 的端点构件签名、每页的已确认构件序列和局部管段数；长度仅作为最后的消歧特征。页面边界和 IDF 源行顺序都不是拓扑顺序。
+5. `match_multipage_chain_100_v1.py` 仅适用于无分支的显式页序链。只要出现 `junction`，必须返回 `not_chain_eligible` 并转入本节的锚点分区，不得降级为文件顺序串接。
 
 ## 单页流程
 

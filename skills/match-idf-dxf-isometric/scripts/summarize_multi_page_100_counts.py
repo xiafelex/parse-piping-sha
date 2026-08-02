@@ -45,17 +45,30 @@ def main():
         missing = [page['file'] for page, row in zip(line['dxf_pages'], page_rows) if row is None]
         idf_paths = [args.idf_root / name for name in line['idf_files']]
         idf_counts = [count_idf_100(path) for path in idf_paths]
+        # A filename line key can point to more than one nominal-bore IDF.
+        # The largest count is not a valid proxy for the DXF's intended IDF;
+        # retain every candidate and withhold a single baseline until a later
+        # topology/specification selection step has evidence.
+        unique_idf = len(idf_paths) == 1
         rows.append({
             'line_key': line['line_key'], 'idf_files': line['idf_files'],
-            'idf_100_counts': idf_counts, 'idf_100_count': max(idf_counts, default=0),
+            'idf_100_counts': idf_counts,
+            'idf_100_candidates': [
+                {'file': path.name, 'count': count}
+                for path, count in zip(idf_paths, idf_counts)
+            ],
+            'idf_100_count': idf_counts[0] if unique_idf else None,
+            'idf_selection_status': 'unique_filename_candidate' if unique_idf else 'ambiguous_multiple_idf_candidates',
             'dxf_page_count': line['dxf_page_count'],
             'dxf_final_pipe_fragment_count': sum(row['final_pipe_fragments'] for row in page_rows if row),
             'dxf_support_related_fragment_count': sum(row['support_contraction_eligible_fragments'] for row in page_rows if row),
             'dxf_unresolved_pipe_count': sum(row['unresolved_pipe_count'] for row in page_rows if row),
             'zero_pipe_pages': [page['file'] for page, row in zip(line['dxf_pages'], page_rows) if row and row['final_pipe_fragments'] == 0],
             'missing_count_pages': missing,
-            'comparison_status': 'requires_page_partition_before_100_comparison',
-            'reason': 'DXF total contains page splits and support-cut fragments; it must not be equated to IDF 100 total.',
+            'comparison_status': ('requires_page_partition_before_100_comparison'
+                                  if unique_idf else 'requires_idf_candidate_selection_before_count_comparison'),
+            'reason': ('DXF total contains page splits and support-cut fragments; it must not be equated to IDF 100 total.'
+                       if unique_idf else 'More than one filename-associated IDF exists; do not select by maximum 100 count.'),
         })
     result = {'scope': 'all multi-page IDF↔DXF filename-associated lines', 'line_count': len(rows), 'rows': rows}
     args.output.parent.mkdir(parents=True, exist_ok=True)

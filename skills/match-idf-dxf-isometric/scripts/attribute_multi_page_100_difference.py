@@ -73,10 +73,14 @@ def main():
         kinds = defaultdict(int)
         for _page, _source, page_row in by_line[key]:
             for kind, amount in page_row['pipe_kind_counts'].items(): kinds[kind] += amount
+        idf_count = count_row['idf_100_count']
         rows.append({
             'line_key': key, 'idf_100_count': count_row['idf_100_count'],
+            'idf_selection_status': count_row.get('idf_selection_status', 'unknown'),
+            'idf_100_candidates': count_row.get('idf_100_candidates', []),
             'dxf_final_pipe_fragment_count': count_row['dxf_final_pipe_fragment_count'],
-            'raw_difference': count_row['dxf_final_pipe_fragment_count'] - count_row['idf_100_count'],
+            'raw_difference': (count_row['dxf_final_pipe_fragment_count'] - idf_count
+                               if idf_count is not None else None),
             'arrow_pipe_count': kinds['arrow_pipe'],
             'support_related_fragment_count': kinds['support_pipe'] + kinds['support_weld_pipe'] + kinds['support_empty_pipe'],
             'empty_terminal_fragment_count': kinds['support_empty_pipe'] + kinds['weld_empty_pipe'],
@@ -84,7 +88,9 @@ def main():
             'cross_page_medium_confidence_terminal_candidates': medium,
             'unresolved_pipe_count': kinds['unresolved_pipe'],
             'automatic_adjustment': 0,
-            'next_step': 'review high candidates first; then test local IDF topology before any support/component aggregation',
+            'next_step': ('select the IDF candidate from topology/specification evidence before count comparison'
+                          if idf_count is None else
+                          'review high candidates first; then test local IDF topology before any support/component aggregation'),
         })
     result = {'algorithm': 'MULTI_PAGE_100_DIFFERENCE_ATTRIBUTION_V1',
               'policy': 'evidence ledger only; no automatic count correction', 'rows': rows}
