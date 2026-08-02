@@ -168,6 +168,14 @@ incident pipe 中必须恰有一条 `SUPPORT_WELD_PIPE`，才可输出该 `I### 
 `unresolved`。当前正例为 CWR `I014→P004`、CWS `I008→P008`，并在 DR200001 得到待人工
 复核的 `I014→P014`；尚未积累反例，故不得将此规则泛化为“所有支管必然接支架—焊缝直管”。
 
+`RAW41_BRANCH_CONTINUATION_HYPOTHESIS_V1` 只生成复核假设：若页范围内唯一的 IDF
+`junction_3` 有且仅有一条臂通向 degree-2、raw code 恰为 `[41]` 的 connector，且唯一的 DXF
+`branch/tee` 有且仅有一条臂通向 degree-2 DXF `branch/tee`，则报告这条 `I###→DXF pipe` 与
+frame 对作为 `low / candidate_requires_visual_review`。它利用的是“已展开/未展开的支管连续性”
+的局部拓扑，完全不使用页坐标、页序或 `CONT.`；不得直接写入 `propagate` 的最终匹配，更不能
+把所有 degree-2 code `41` 命名为通用三通。当前仅在 DR200001 p1 产生 `I003→P002` 候选，
+CWR/CWS 回归为零触发。
+
 运行 `score_page_pipe_correspondence_candidates_v1.py` 生成每个 `I###` 的候选矩阵：匹配的
 component-frame 邻接、八种轴向变换下的方向余弦、现有独立锚点、候选分数与分差。该脚本
 只把已审计 outlet/唯一构件链计入“校准证据”；`degree3_projected_arm_direction` 只标为
