@@ -168,6 +168,12 @@ propagator必须拒绝任何其它页，且输出 policy 明示不对整条线�
 DR201010 p3 回归：`I025…I037` 与 `I025…I036` 并列，安全内部为 `I025…I036`，相对低分范围
 `I014…I025` 的分差 `.32435`；唯一 outlet 传播得到 `I028→P005`，`I037` 保持未解。
 
+对仍同分的 cover，运行 `audit_frame_edge_signature_ranges_v1.py <frame-graph> <global-cover>`；
+它比较每页 landmark 之间由同一 pipe 直接连接的 `junction/elbow/reducer` 边类型多重集，且只对
+既有合法范围排序，不能产生 I→P。若结果为 `edge_signature_non_discriminating`，不得假设“构件
+计数遗漏了顺序信息”并强配。941 回归：DR201010（5 个 cover）、DR201014（3 个）、DR201015（2 个）
+在此审计中全部同分；其未解页界需要新的独立矢量/构件证据，而不是再用同一拓扑属性重复投票。
+
 当且仅当得到 `topology_global_unique_exact_cover_candidate`，才可运行
 `propagate_page_frame_anchors_v1.py` 做第二层的逐段候选传播：唯一 `reducer ↔ bore_change`、
 `elbow ↔ turn_2`、`branch/tee ↔ junction_3` 为起点；若某个已匹配的二度构件另一侧管段
