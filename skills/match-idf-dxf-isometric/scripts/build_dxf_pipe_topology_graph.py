@@ -46,8 +46,13 @@ def main():
     result = {
         'algorithm': 'DXF_PIPE_COMPONENT_TOPOLOGY_V1', 'line_key': graph['line_key'],
         'coordinate_policy': 'only page-local semantic contacts; no cross-sheet coordinate merge',
+        # Some semantic exports retain exact endpoint coordinates only in
+        # endpoint_annotations.  Those annotations were created by the DXF
+        # element-recognition layer from source vectors, so preserving their
+        # two points here is serialization recovery, not reclassification.
         'pipes': [{'id': pipe['id'], 'page': pipe['page'], 'kind': pipe['kind'], 'handles': pipe['handles'],
-                   'endpoints': pipe.get('endpoints', [])}
+                   'endpoints': pipe.get('endpoints') or
+                                [row['point'] for row in pipe.get('endpoint_annotations', []) if row.get('point')]}
                   for pipe in graph['pipes']],
         'direct_pipe_edges': direct,
         'through_component_hyperedges': through,

@@ -128,6 +128,12 @@ description: Reconcile IDF piping straight-pipe records with already classified 
 - `build_component_frame_graphs.py`：把 IDF 的 junction/turn/bore-change 框架与 DXF 的
   branch/tee/elbow/reducer/flange/valve 框架分别输出。
 
+匹配层序列化 DXF topology 时，`pipe.endpoints` 必须优先保留原字段；若该字段为空而已有图元识别层
+给出的 `endpoint_annotations[].point`，可原样恢复这两个 source-vector 端点。这是已确认语义证据
+的保真，不是重新按图像/文字识别。941 全量刷新后，17 条线的 `1031` 个 pipe 中有 `833` 个保留
+可用于精确连续性审计的端点；DR201010 从 `0/69` 恢复为 `50/69`。未有任意注释端点的 pipe 必须
+仍保持无端点，不能由图框位置或最近文字补造。
+
 匹配顺序：唯一三通/支管 → 稀有变径或阀门—法兰组合 → 弯头转向序列 → 两框架之间的
 pipe 相对长度/方向。先得到“本 DXF 页是 IDF 全图的哪个子图”的候选；再从已确认框架
 沿边扩展 `I###`。一开始允许漏/多 pipe、支架分段和跨页显示重叠；这些属于边的证据，
