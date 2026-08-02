@@ -11,8 +11,9 @@ def dseg(p,a,b):
 
 def paths(component):
     result=[]
-    for q in [component.get('outline',[]), *component.get('welds',[])]:
+    for q in [component.get('outline',[]), *component.get('welds',[]), *component.get('subpaths',[])]:
         result.extend(zip(q,q[1:]))
+    result.extend(component.get('strokes', []))
     return result
 
 def main():

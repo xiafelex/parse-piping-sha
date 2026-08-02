@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import sys
 from collections import Counter
 from pathlib import Path
 
@@ -27,6 +28,10 @@ COMPONENT_KINDS = {
 
 
 def load_adapter(path: Path):
+    # The maintained semantic adapter has sibling helper modules.  Add only
+    # its own directory so this exporter remains runnable from the skill dir.
+    if str(path.parent) not in sys.path:
+        sys.path.insert(0, str(path.parent))
     spec = importlib.util.spec_from_file_location('dxf_semantic_adapter', path)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader
@@ -47,6 +52,40 @@ def centre(item):
             round(sum(p[1] for p in points) / len(points), 6)]
 
 
+def source_segment(entity):
+    """Return the first/last source-vector vertices for a classified handle.
+
+    This does not decide what a pipe *is*: its caller supplies only handles
+    already classified by the element-recognition adapter.  It restores the
+    vector endpoints that an ``arrow_pipe`` group needs for topology: the
+    adapter intentionally has no physical endpoint at the arrow glyph itself.
+    """
+    kind = entity.dxftype()
+    if kind == 'LINE':
+        return [[entity.dxf.start.x, entity.dxf.start.y], [entity.dxf.end.x, entity.dxf.end.y]]
+    if kind == 'LWPOLYLINE':
+        points = list(entity.get_points('xy'))
+    elif kind == 'POLYLINE':
+        points = [(vertex.dxf.location.x, vertex.dxf.location.y) for vertex in entity.vertices]
+    else:
+        return None
+    if len(points) < 2:
+        return None
+    return [[float(points[0][0]), float(points[0][1])], [float(points[-1][0]), float(points[-1][1])]]
+
+
+def source_segments(doc, handles):
+    result = []
+    for handle in handles:
+        entity = doc.entitydb.get(handle)
+        if entity is None:
+            continue
+        segment = source_segment(entity)
+        if segment:
+            result.append({'handle': handle, 'endpoints': segment})
+    return result
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('dxf', type=Path)
@@ -64,10 +103,15 @@ def main():
     for item in items:
         kind = item['kind']
         if kind in PIPE_KINDS:
+            handles = list(item.get('handles', ()))
             pipes.append({
-                'kind': kind, 'handles': list(item.get('handles', ())),
+                'kind': kind, 'handles': handles,
                 'endpoints': item.get('endpoints', []),
                 'endpoint_annotations': item.get('endpoint_annotations', []),
+                # Keep every individual source segment.  A multi-handle
+                # arrow group can later derive its two outer endpoints
+                # without pretending the arrow glyph is an IDF component.
+                'source_vector_segments': source_segments(doc, handles),
                 'title': item.get('title', ''),
             })
         elif kind in COMPONENT_KINDS:
@@ -79,6 +123,8 @@ def main():
                 # which typed pipe endpoints touch that confirmed body.
                 'outline': item.get('outline', []),
                 'welds': item.get('welds', []),
+                'subpaths': item.get('subpaths', []),
+                'strokes': item.get('strokes', []),
                 'anchor': item.get('anchor'),
             })
     result = {

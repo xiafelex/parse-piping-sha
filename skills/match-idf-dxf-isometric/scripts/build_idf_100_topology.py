@@ -62,7 +62,24 @@ def main():
         if edge['code']!=100:continue
         pipes.append({**edge,'endpoint_signature':[
             {'degree':len([x for x in nodes[p] if x[0]['a']!=x[0]['b']]),
-             'codes':sorted(x[0]['code'] for x in nodes[p] if x[0] is not edge)} for p in (edge['a'],edge['b'])]})
+                           'codes':sorted(x[0]['code'] for x in nodes[p] if x[0] is not edge)} for p in (edge['a'],edge['b'])]})
+    # Preserve the original coordinate graph as labelled records.  This is
+    # deliberately not a contraction: codes such as 35/36/55/105/110/130 may
+    # describe different inline bodies in different IDFs.  The global matcher
+    # may compare their local sequence later, but must not silently treat all
+    # of them as interchangeable nodes.
+    design = [edge for edge in edges
+              if 35 <= edge['code'] <= 150 and edge['a'] != edge['b']
+              and edge['a'] != (0.0, 0.0, 0.0) and edge['b'] != (0.0, 0.0, 0.0)]
+    raw_points = sorted({point for edge in design for point in (edge['a'], edge['b'])})
+    raw_point_ids = {point: f'Q{index:03d}' for index, point in enumerate(raw_points, 1)}
+    raw_graph = {
+        'nodes': [{'id': raw_point_ids[point], 'point': point} for point in raw_points],
+        'edges': [{'id': edge['id'] or f'R{index:03d}', 'record_code': edge['code'], 'line': edge['line'],
+                   'a': raw_point_ids[edge['a']], 'b': raw_point_ids[edge['b']], 'bore': edge['bore']}
+                  for index, edge in enumerate(design, 1)],
+        'policy': 'labelled source records; no generic non-100 contraction',
+    }
     # Contract only the empirically verified branch connector (41).  Generic
     # non-100 records such as 35/36/150 can be title/block geometry; blindly
     # contracting them collapses unrelated routes into one artificial node.
@@ -89,6 +106,7 @@ def main():
     ]
     result={'idf':args.idf.name,'idf_100_count':len(pipes),'geometry_edge_count':len(edges),'branch_nodes':branch,
             'pipes':pipes,'contracted_pipe_graph':{'nodes':contracted_nodes,'edges':graph_edges}}
+    result['raw_geometry_graph'] = raw_graph
     args.output.parent.mkdir(parents=True,exist_ok=True);args.output.write_text(json.dumps(result,ensure_ascii=False,indent=2))
     print(json.dumps({'idf_100_count':len(pipes),'branch_node_count':len(branch),'branches':branch},ensure_ascii=False))
 if __name__=='__main__':main()
