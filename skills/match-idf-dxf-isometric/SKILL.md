@@ -254,6 +254,14 @@ IDF 上它必须经唯一 `turn_2` 连向本页唯一未匹配 `100`。此时可
 文字距离取候选会把 P000/P001/P003/P004 混入。CWS200001 `p3→p1` 回归必须是 0 新增。
 `CONT` 仍不是页面归属、编号顺序或全局路径的主证据。
 
+`REVERSE_CROSSPAGE_TURN_V1` 是上述规则的反向形式：当前页的 `CONT.FROM` 零宽引线先唯一
+命中一个**已经匹配**的 pipe；IDF 中仅保留该 pipe 经 `turn_2` 所连、且不属于当前页或前页既有
+映射的另一条 pipe。前页 `CONT.ON` 引线可有多个精确接触候选，但其中必须只有一条属于所需
+`elbow`，才可写入前页 pipe 与 `turn_2↔elbow` frame 对。CWS200001 回归为
+`I012→p3:P000` 加前页 P010（而 P001 同引线触及但属于 branch，必须拒绝），得到
+`I011→p1:P010`、`K006→p1:C000`。若当前 IDF pipe 的另一条 turn 邻居已在当前页映射，必须
+排除，不能误判为前页 arm。
+
 `CALIBRATED_BRANCH_ARM_DIRECTION_V1` 仅解决一个**已配对三通**中剩余的两条主管臂。运行
 `resolve_branch_arms_by_calibrated_direction_v1.py` 前必须同时满足：项目级 D4 轴向已经由其他
 页面的非方向证据独立校准；三通的三条 IDF/DXF 臂完整；其中一条已由 outlet、vector-contact
