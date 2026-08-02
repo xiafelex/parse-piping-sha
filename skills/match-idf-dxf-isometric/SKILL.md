@@ -86,6 +86,9 @@ description: Reconcile IDF piping straight-pipe records with already classified 
    构件 outline/weld boundary 的距离建立邻接边（默认 ≤1.1）。邻近文字、尺寸、图框、
    或仅在同一局部截图中出现的图元一律不能建边。该图是多分支全局分配的输入；没有它，
    不得从“离 branch 最近”推断 main leg。
+   当 IDF/DXF 分支数量一致但仅部分 DXF branch 具有直接管段接触时，状态为
+   `branch_anchor_partial_observability`：仅输出有直接证据的候选，其余不进入二分图
+   强制分配，须等待跨页连接或相邻构件证据。
 
 ## 单页流程
 
