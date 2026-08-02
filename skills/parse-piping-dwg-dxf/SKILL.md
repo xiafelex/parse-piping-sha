@@ -1,35 +1,86 @@
 ---
 name: parse-piping-dwg-dxf
-description: 解析管道轴测 DWG 或 DXF 的 CAD 图元、块参照、管线拓扑、焊点和支架。用于将 DWG 转为 DXF/SVG/PNG、识别 Buttweld 等命名块、或在纯扁平 DXF 中基于矢量形状生成焊点候选并进行人工复核。
+description: Analyse piping-isometric DWG/DXF vector drawings to classify welds, flow arrows, supports, elbows, straight-pipe runs, tees, branch outlets, flanges, reducers, and valves; produce vector-anchored whole-page and local review PNGs; and match the resulting DXF topology to IDF 100 straight records. Use for piping ISO DWG/DXF conversion, component/weld/support detection, straight-pipe segmentation, or IDF-to-DXF topology reconciliation.
 ---
 
-# 管道 DWG/DXF 解析
+# Piping DWG/DXF Vector Analysis
 
-将 DWG/DXF 视为 CAD 图元和块参照来源；它不具有 SHA 的 UCI、PSM 或 Shape2D 流关系。不要将 SHA 规则、PCF 三维坐标或 PDF 像素位置直接写回 DWG/DXF 图元。
+Use the DXF vector entities as the drawing-position authority. Convert a binary DWG to a separate DXF copy first; preserve the source DWG. Use IDF only as an independent topology and attribute source—never project IDF 3D coordinates directly onto sheet coordinates.
 
-## 工作流
+Read [flat-941-profile.md](references/flat-941-profile.md) for the calibrated 0.6-wide profile before analysing that drawing family. For a different export profile, inventory entities and create an unpromoted review queue; do not copy its numeric tolerances blindly.
 
-1. 先识别文件类型与版本。二进制 DWG 先用 ODA File Converter 或 `libredwg` 转为独立 DXF 副本；保留原 DWG 不改写。
-2. 清点 `INSERT`、`BLOCK`、`LINE`、`LWPOLYLINE`、`ARC`、`CIRCLE`、`HATCH`、`MTEXT`、`DIMENSION` 和 `MULTILEADER`。先判断是否存在命名构件块，再决定是否需要图形猜测。
-3. 生成每张图的高分辨率原始 PNG，并输出焊点候选叠加 PNG。所有自动结论必须可回查到 DXF handle、块名或局部图元集合。
-4. 用人工标注复核候选，输出 `weld`、`support`、`uncertain` 三类及置信度。PCF/IDF 只能作为独立的工程语义核对，不能替代 DWG/DXF 的二维位置证据。
+## Required workflow
 
-## 命名块优先
+1. Render the unmodified DXF page, including its full border; crop only the drawing area for local review.
+2. Inventory entity types, DXF handles, widths, blocks, extents, and layers. Prefer named blocks when they survive conversion.
+3. Extract the raw pipe skeleton and retain each source handle and exact endpoint.
+4. Classify geometry in the mandatory order below. A later class may not override an earlier owned body.
+5. Build a typed graph, split it at physical boundaries, and assemble final pipe runs.
+6. Render a whole-page overlay and numbered 3×3 local evidence panels. Record every classification with source filename, handles, rule, anchors, confidence, and evidence path.
+7. Only after DXF review, parse IDF `100` records and perform topology matching.
 
-- 如果 DXF 保留了块参照，块名是首选证据。例如 `INSERT Buttweld` 是焊点的高置信度候选，应记录插入点、旋转、缩放、handle 和块内容。
-- 不要因为块名相似就跨项目复用。先在同一项目抽样确认块定义与实际图纸一致，再将它提升为项目规则。
-- 将支架、法兰、弯头、阀门和注释块分别建立项目级模板；不要用靠近文字或靠近管线的空间关系代替块语义。
+## Mandatory classifier order
 
-## 纯扁平 DXF 的焊点与支架
+1. `RAW_PIPE` — project-profile pipe vectors only; do not call them final straight pipe.
+2. `WELD` and `FLOW_ARROW` — vector contact with the pipe axis/endpoint is mandatory.
+3. `ELBOW` — weld → continuous pipe-vector group → weld.
+4. `COMPONENT` — closed body plus weld/contact topology: branch outlet, flange, reducer, or valve.
+5. `SUPPORT` — physical paired support strokes at a pipe cross-section/end.
+6. `PIPE_ROLE` — split at confirmed boundaries; contract arrows only inside an already split run.
+7. `TEE` — recognise a three-leg weld-star only from endpoint roles.
+8. `IDF_MATCH` — compare normalised typed graphs; never force a match from length alone.
 
-- 没有命名块或对象属性时，不能仅凭小黑点、双线管道断开、附近的 `S12`/支架文字、尺寸引线或管线延伸关系判定焊点。这些只能生成候选。
-- 在当前人工复核样例中，真实焊点表现为位于双线管道走廊内、沿局部管轴排列的白色楔形/箭头状复合图元，并与两侧管线缺口一致。先将候选旋转到局部管轴，再比较图元的顶点序列、线段数、包围盒、旋转、两条管边界接触关系和缺口关系。
-- 斜向填充或“蝴蝶结/网纹”式复合图元、其支架引线和邻近 `S12` 支架注释属于明确负类。支架和焊点都可能造成管道双线断开，因此不能把断开本身作为分类条件。
-- `053-DR` 样例中，一组重复短折线/短平行线曾被误判为焊点，人工确认它们是支架。不要把该尺寸或该局部拓扑推广成通用焊点模板。
-- 人工复核图中，紫色五角星是漏检的真实焊点，进入正样本集合；蓝色五角星是误报位置，进入负样本集合。它们只用于评估和校准模板，不能作为生产解析时的坐标来源。
+## Promoted vector rules
 
-## 输出与验收
+### Raw pipe and final pipe roles
 
-每个检测结果至少输出：`{sheet, center, local_axis, class, confidence, source_handles, block_name, gap_evidence, template_id}`。
+- In the calibrated flat profile, a two-point 0.6-wide `POLYLINE` is raw pipe only.
+- Split at every weld, support, elbow boundary, branch, flange, reducer, valve, or terminal. A confirmed arrow is transparent and cannot be a pipe endpoint.
+- Emit a final role, not generic “pipe”: `ARROW_PIPE`, `SUPPORT_PIPE`, `SUPPORT_WELD_PIPE`, `WELD_PIPE`, `SUPPORT_EMPTY_PIPE`, or `WELD_EMPTY_PIPE`. Exclude `ELBOW_PIPE` from straight-pipe output.
+- Preserve real DXF end positions in overlays: use flat caps and do not invent rounded gaps or shifted circles.
 
-逐张交付时至少保留：原始 PNG、候选叠加 PNG、检测 JSON 和人工复核结论。只有确认正样本不再漏检、负样本不再误报后，才能将模板标为该项目稳定规则；换 CAD 导出器或换项目后必须重新校准。
+### Weld and arrow ownership
+
+- Accept a weld only when its closed body vector-contacts the pipe boundary. The calibrated profile contains compact closed weld bodies, including a six-sided outline with a local crossing-fill package.
+- Classify the six-sided crossing-fill weld before flange/reducer/valve tests. Its owned closed outline is never a component candidate.
+- Accept a flow arrow only when its open wedge bridges two collinear pipe sides. Do not treat a flow arrow as a physical break.
+
+### Elbow and tee
+
+- Accept an elbow only when its full continuous bend group is bounded by two confirmed welds. Include the short boundary vectors in the elbow body; stop at a weld, support, or component.
+- Accept a tee only when exactly three `WELD_EMPTY_PIPE` runs share one empty endpoint and their three opposite endpoints are welds. Do not promote an ordinary two-leg bend or an untyped junction.
+
+### Support
+
+- For an in-path support cross-section, require two short pipe-parallel strokes on opposite pipe walls, aligned with the exact join of adjoining pipe vectors. Text, leaders, dimensions, and symbol centres are not support anchors.
+- For a terminal support cross-section, allow an unsplit raw pipe endpoint only if two short zero-width strokes are pipe-parallel, opposite, and symmetric around that endpoint. Treat it as the same hard graph cut. A one-sided tick is insufficient.
+- Never bridge a confirmed support: it separates two physical pipe runs.
+
+### Components
+
+- `BRANCH_OUTLET`: compact closed 8-vertex body with two distinct symmetric body-edge midpoints coincident with two distinct weld-axis centres. Require the associated branch topology; do not infer it from vertex count alone.
+- `WELDED_FLAT_FLANGE`: plate-like closed body with one edge midpoint coincident with a weld-axis centre.
+- `WELDED_LONG_NECK_FLANGE`: one connected group comprising the plate and its physically contacting trapezoid neck. Select the plate by boundary contact with the neck, never centroid proximity.
+- `REDUCER`: complete two-interface taper with unequal interface widths and an outer parallel-side pair. Exclude it from flange and valve queues first.
+- `VALVE`: classify only after both adjacent flange groups and their welds have been removed from the candidate graph.
+- Do not use a body centre or loose spatial proximity as a component anchor.
+
+## Rendering and review contract
+
+- Always deliver the original DXF render and a vector overlay for the same view.
+- Use small plain IDs and source handles in local panels. Highlight the complete component body, never a guessed centre point.
+- For uncertain classes, generate 3×3 local panels and ask for panel IDs. Keep confirmed and rejected samples in separate audit rows; do not treat screenshots as geometry input.
+- Recommended colours: cyan elbow; pink weld; yellow arrow pipe; orange support-support; brown support-weld; deep orange weld-weld; green support-empty; blue weld-empty; teal tee; violet branch; amber flange; gold reducer; grey unresolved.
+
+## IDF 100 matching stage
+
+1. Parse each valid IDF `100` as a straight-pipe edge and retain adjacent typed component records as nodes.
+2. Build the DXF graph from the classified output; contract only ordinary CAD decomposition and confirmed arrows.
+3. Normalise each graph under allowed isometric rotation/mirror while preserving degree, branch order, component order, turns, bore transitions, and relative length ratios.
+4. Match by endpoint/component signature, then branch degree/order, turn sequence, bore transition, and finally relative length. Treat cut-pipe tables as downstream validation, not matching truth.
+5. Emit candidate pairs, competing candidates, score margin, and confidence. Keep structural conflicts unresolved.
+6. For every non-trivial pair, render: full numbered IDF graph, full numbered DXF overlay, and a paired local topology crop.
+
+## Rule update discipline
+
+For each human verdict, record the ordered prerequisites, measured vector features, topology effect, rejected alternative, validation counts, and recall limit. Change the smallest general rule that explains both positive and negative samples; replay prior labelled examples and then forward-test unseen pages. Store source-specific handles only as regression evidence, never as a production rule.

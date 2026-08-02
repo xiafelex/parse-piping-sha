@@ -1,4 +1,4 @@
 interface:
   display_name: "管道 DWG/DXF 解析"
-  short_description: "解析管道轴测DWG/DXF图元、块参照、构件与焊点候选"
-  default_prompt: "请解析这些管道轴测 DWG/DXF，识别焊点、支架和构件，并生成原图与候选叠加 PNG 进行复核。"
+  short_description: "识别管道轴测构件、直管拓扑并匹配 IDF 100"
+  default_prompt: "请解析这些管道轴测 DWG/DXF，识别焊缝、支架、构件和直管段，生成整图与九宫格矢量复核图，并与 IDF 100 进行拓扑匹配。"
