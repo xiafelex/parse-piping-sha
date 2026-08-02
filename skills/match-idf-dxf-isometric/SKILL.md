@@ -75,6 +75,10 @@ description: Reconcile IDF piping straight-pipe records with already classified 
 6. 运行 `extract_idf_branch_legs.py` 输出每个 `41` 三度节点直接相邻的稳定 `I###`。这是
    “IDF 编号在 DXF 分支局部出现”的候选集合；尚未有唯一 DXF 证据时，不得将其中任何
    一条强行写为最终 `I### → C###`。
+7. `match_branch_outlet_candidates_v1.py` 只允许匹配唯一的 `outlet_leg`：DXF 已确认
+   `branch/tee` body 必须与一条 typed pipe 的端点直接矢量接触（默认 ≤1.1 DXF 单位）。
+   同时唯一时可输出 `medium` 候选；两条 main leg 不可按距离或页序猜测，必须保留
+   `unresolved`，直到完整的构件—焊缝—管段邻接图已建立。
 
 ## 单页流程
 

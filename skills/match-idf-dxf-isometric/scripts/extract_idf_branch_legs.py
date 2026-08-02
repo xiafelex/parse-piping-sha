@@ -25,10 +25,15 @@ def main():
         if not any(set(ids) >= set(raw['incident_100']) for raw in source['branch_nodes']
                    if raw['role'] == 'junction'):
             continue
+        outlet_ids = set()
+        for raw in source['branch_nodes']:
+            if raw['role'] == 'outlet_leg':
+                outlet_ids.update(raw['incident_100'])
         branch_sets.append({
             'node': node['id'],
             'idf_100_legs': [
-                {'id': ident, 'line': edge_by_id[ident]['line'], 'bore': edge_by_id[ident]['bore']}
+                {'id': ident, 'line': edge_by_id[ident]['line'], 'bore': edge_by_id[ident]['bore'],
+                 'role': 'outlet_leg' if ident in outlet_ids else 'main_leg'}
                 for ident in ids
             ],
             'evidence': 'three-degree node created solely by verified IDF record 41',
