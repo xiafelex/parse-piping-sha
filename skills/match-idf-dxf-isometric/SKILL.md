@@ -222,6 +222,18 @@ IDF `100` 与它在**原始三维端点**精确相接，且该 DXF `P###` 在**�
 `CWS200001` p3 从 `I015→P003` 反向传播 `I014→P002、I013→P001`；两者都必须保留原图
 vector overlay 审计。
 
+`DEGREE2_FRAME_PROPAGATION_FROM_PIPE_MATCHES_V1` 紧跟在上述规则之后：运行
+`propagate_degree2_frames_from_pipe_matches_v1.py <frame-graph.json> <current-matches.json>
+--page N --output <json>`。已匹配 pipe 的两侧各只能有**唯一一个**尚未配对、且同类别的
+semantic frame；如果该 frame 在 IDF 和 DXF 都为 degree 2，且已经有一条相同的 incident pipe
+映射，才可匹配另一条 opposite pipe。它对 elbow/reducer 有效，绝不对三通按臂顺序猜测。
+
+推荐闭环顺序是：独立 frame/outlet anchor → exact raw continuation → degree-2 opposite arm →
+再次 exact raw continuation，直至没有新增项。每一步仍要执行 one-to-one 检查、源端点检查和
+整图 overlay 审计。正向回归：CWR200001 p1 在 `I008→P007` 后唯一得到
+`K006(elbow)→C000(elbow)`、`I009→P008`，再由精确端点得到 `I010→P009`；CWS200001 p3
+在 `I013…I019` 后唯一得到 `K007(elbow)→C001(elbow)`、`I012→P000`。
+
 对传播结果调用 `render_idf_dxf_match_overlay.py <source.dxf> <propagation.json>
 --dxf-pipe-topology <topology.json> --output <png>`。一个 semantic pipe 可包含多个 source
 vector（特别是 arrow-transparent pipe）；图中要高亮全部向量，但同一个 `I###` 只标一次，
