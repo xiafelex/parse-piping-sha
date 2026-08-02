@@ -146,6 +146,10 @@ pipe 相对长度/方向。先得到“本 DXF 页是 IDF 全图的哪个子图�
 直接接触可播种一条 `medium` pipe 候选。每次传播必须保留未解项，不得将“页范围已定位”
 误报为“全部 I### 已定位”。
 
+传播 frame 必须两侧均有已定义且相同的语义类（当前为 `junction`、`elbow`、`reducer`）。
+`terminal_1`、焊缝或任何未命名 frame 的类别值都可能为空；空值相等不是构件匹配，严禁
+以 `None == None` 创建传播 seed，否则会把 IDF 终端伪配为 DXF 焊缝并污染后续直管编号。
+
 `propagate_page_frame_anchors_v1.py` 的三度臂方向匹配默认**关闭**；必须显式提供
 `--axis-transform <identity|flip_x|flip_y|...>`，且该变换只能来自同一项目的独立审计锚点。
 不可用“本次由三通方向推得的 I###→pipe”反向证明该镜像/旋转；那是循环证据。未获得两个

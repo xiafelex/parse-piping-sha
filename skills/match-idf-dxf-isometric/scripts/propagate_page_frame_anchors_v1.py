@@ -183,7 +183,11 @@ def main() -> None:
     def add_frame(idf_id: str, dxf_id: str, evidence: str) -> bool:
         if idf_id in frame_map and frame_map[idf_id] != dxf_id: return False
         if dxf_id in frame_map.values() and frame_map.get(idf_id) != dxf_id: return False
-        if category(idf_by_id[idf_id], 'idf') != category(dxf_by_id[dxf_id], 'dxf'): return False
+        left_kind, right_kind = category(idf_by_id[idf_id], 'idf'), category(dxf_by_id[dxf_id], 'dxf')
+        # ``None == None`` is not a semantic match.  In particular, an IDF
+        # terminal and a DXF weld can both be untyped by this stage but must
+        # never become a frame seed for downstream propagation.
+        if left_kind is None or right_kind is None or left_kind != right_kind: return False
         if frame_map.get(idf_id) == dxf_id:
             return False
         frame_map[idf_id] = dxf_id; frame_evidence[idf_id] = evidence
