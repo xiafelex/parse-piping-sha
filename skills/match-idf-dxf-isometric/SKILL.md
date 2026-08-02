@@ -12,7 +12,7 @@ description: Match one single-page piping IDF to its already classified DXF isom
 ## 输入门槛
 
 - 保留原始 IDF、原始 DXF 与其构件识别 JSON；所有派生文件另存。
-- 确认 IDF 范围只对应一页 DXF，且图纸没有 `CONT. ON DRG`、跨页连接或未展开的同线续页。若不满足，输出 `multi_page_not_eligible`，不得强行匹配。
+- 确认 IDF 范围只对应一页 DXF，且图纸没有 `CONT. ON DRG`、跨页连接或未展开的同线续页。必须直接扫描 DXF 的 `TEXT` 与 `MTEXT`，不能仅以目录中同名 DXF 文件数量判定；若不满足，输出 `multi_page_not_eligible`，不得强行匹配。
 - DXF 必须已有带 source filename、DXF handle、端点锚点、构件类别和管段端点角色的审计记录。
 - `CUT PIPE LENGTH`、材料表、尺寸文字仅可用于最终审计，不可作为建立对应关系的依据。
 
