@@ -95,8 +95,8 @@ def main() -> None:
     args = parser.parse_args()
     graph = json.loads(args.component_frame_graph.read_text())
     cover = json.loads(args.global_cover.read_text())
-    if cover['status'] != 'topology_global_exact_cover_candidate':
-        raise SystemExit('requires an exact global page-range cover; partial covers stay unresolved')
+    if cover['status'] != 'topology_global_unique_exact_cover_candidate':
+        raise SystemExit('requires a unique exact global page-range cover; ambiguous or partial covers stay unresolved')
 
     allowed = chosen_range(cover, args.page)
     idf_frames_all = graph['idf']['frames']

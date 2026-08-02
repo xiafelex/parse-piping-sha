@@ -62,7 +62,12 @@ def main():
     # component; it controls only window scale, never an I### assignment.
     raw_pipes = Counter(item['page'] for item in graph['dxf']['pipe_frame_incidence'])
     result_pages = []
-    for page, frames in sorted(pages.items()):
+    # Pages containing only unresolved/straight pipes still belong to the
+    # global cover.  They contribute a zero component signature and may only
+    # become a weak candidate; omitting them would silently turn a multipage
+    # drawing into a false closed subset.
+    for page in sorted(set(pages) | set(raw_pipes)):
+        frames = pages.get(page, [])
         signature = dxf_signature(frames)
         base = max(1, raw_pipes[page])
         candidates = []

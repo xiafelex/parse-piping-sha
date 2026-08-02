@@ -151,6 +151,16 @@ pipe 相对长度/方向。先得到“本 DXF 页是 IDF 全图的哪个子图�
 vector（特别是 arrow-transparent pipe）；图中要高亮全部向量，但同一个 `I###` 只标一次，
 避免把一个 IDF `100` 误读为多个编号。
 
+全量验证用 `batch_component_frame_matching_v1.py`：它从页面清单取唯一 IDF 文件，始终从
+原始 IDF 重建 `raw_geometry_graph` 后再计算框架，并把无 IDF 或多 IDF 候选的管线显式跳过。
+批量结果中的 `topology_global_unique_exact_cover_candidate` 才有资格进入逐页锚点传播。
+完整覆盖但存在同分/近分页范围方案时必须标为 `ambiguous_exact`；构件分数过弱时标为
+`weak_exact`。两者与 `partial_cover` 一样都只能作为跨页重叠、漏图或构件识别不足的诊断，
+不得直接编号。
+
+即使某一 DXF 页没有可确认的弯头/三通/变径，也必须作为 zero-signature 页留在全局覆盖中；
+它只能得到弱候选，绝不能因缺少构件而被静默删除并把剩余页面误判为闭合。
+
 ## 单页流程
 
 1. 解析 IDF，保留原始文件顺序、行号、原始文本与坐标。对每条 `100` 直管分配 `I001…`，对每条 `120` 焊缝分配 `W001…`；编号稳定且不可因后续匹配重排。
