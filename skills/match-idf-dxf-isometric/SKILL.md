@@ -156,6 +156,12 @@ propagator必须拒绝任何其它页，且输出 policy 明示不对整条线�
 范围 `I013…I024` 的几何分差 `1.55638`，唯一 frame/outlet 传播得到 `I020→P008`；原始 DXF
 全页 overlay 已复核，仍有 `11/12` 管段保持 unresolved。这是局部编号增量，绝非五页全局闭合。
 
+若最高分的多个范围只在首/末边界不同，但有连续的共同内部，并且该高分簇相对下一几何簇仍有
+`≥.10` 分差，可附加 `--allow-boundary-intersection`。输出必须为
+`local_geometry_page_interior_validated`，只包含共同 `I###` 区间；不允许声明边界 pipe 属于该页。
+DR201010 p3 回归：`I025…I037` 与 `I025…I036` 并列，安全内部为 `I025…I036`，相对低分范围
+`I014…I025` 的分差 `.32435`；唯一 outlet 传播得到 `I028→P005`，`I037` 保持未解。
+
 当且仅当得到 `topology_global_unique_exact_cover_candidate`，才可运行
 `propagate_page_frame_anchors_v1.py` 做第二层的逐段候选传播：唯一 `reducer ↔ bore_change`、
 `elbow ↔ turn_2`、`branch/tee ↔ junction_3` 为起点；若某个已匹配的二度构件另一侧管段

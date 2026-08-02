@@ -86,6 +86,11 @@ def axis_transform(vector, name: str | None):
 
 
 def chosen_range(cover: dict, page: int) -> set[str]:
+    if cover.get('status') in {'local_geometry_page_range_validated', 'local_geometry_page_interior_validated'}:
+        if cover.get('page') != page:
+            raise ValueError('local geometry cover cannot be used for a different page')
+        start, end = map(number, cover['idf_range'])
+        return {f'I{value:03d}' for value in range(start, end + 1)}
     selected = next(item for item in cover['best']['page_ranges'] if item['page'] == page)
     start, end = map(number, selected['idf_range'])
     return {f'I{value:03d}' for value in range(start, end + 1)}
@@ -166,7 +171,7 @@ def main() -> None:
     graph = json.loads(args.component_frame_graph.read_text())
     cover = json.loads(args.global_cover.read_text())
     globally_validated = cover['status'] == 'topology_global_unique_exact_cover_candidate'
-    locally_validated = (cover['status'] == 'local_geometry_page_range_validated' and
+    locally_validated = (cover['status'] in {'local_geometry_page_range_validated', 'local_geometry_page_interior_validated'} and
                          cover.get('page') == args.page and cover.get('idf_range'))
     if not globally_validated and not locally_validated:
         raise SystemExit('requires a unique exact global cover or a geometry-validated range for this exact page')
