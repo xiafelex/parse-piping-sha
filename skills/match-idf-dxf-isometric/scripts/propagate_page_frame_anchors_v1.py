@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import itertools
 import json
+import math
 from collections import defaultdict
 from pathlib import Path
 
@@ -56,6 +57,15 @@ def score_pair(left: tuple[str, ...], right: tuple[str, ...]) -> int:
     return -6
 
 
+def outward_vector(centre, endpoints):
+    if not centre or len(endpoints) != 2:
+        return None
+    end = max(endpoints, key=lambda point: math.dist(centre, point))
+    vector = [end[axis] - centre[axis] for axis in range(2)]
+    length = math.hypot(*vector)
+    return [value / length for value in vector] if length else None
+
+
 def chosen_range(cover: dict, page: int) -> set[str]:
     selected = next(item for item in cover['best']['page_ranges'] if item['page'] == page)
     start, end = map(number, selected['idf_range'])
@@ -82,6 +92,40 @@ def unique_seed_pairs(idf_frames: list[dict], dxf_frames: list[dict]):
     return result
 
 
+def positional_seed_pairs(idf_frames: list[dict], dxf_frames: list[dict]):
+    """Match repeated component frames through their relative projected axes."""
+    left_groups, right_groups = defaultdict(list), defaultdict(list)
+    for frame in idf_frames:
+        kind = category(frame, 'idf')
+        if kind and frame.get('centre'):
+            left_groups[kind].append(frame)
+    for frame in dxf_frames:
+        kind = category(frame, 'dxf')
+        if kind and frame.get('centre'):
+            right_groups[kind].append(frame)
+    seeds = []
+    for kind in sorted(set(left_groups) & set(right_groups)):
+        left, right = left_groups[kind], right_groups[kind]
+        if len(left) != len(right) or not 2 <= len(left) <= 5:
+            continue
+        ranked = []
+        for permutation in itertools.permutations(right):
+            score = 0.0
+            for i, j in itertools.combinations(range(len(left)), 2):
+                u = [left[j]['centre'][axis] - left[i]['centre'][axis] for axis in range(2)]
+                v = [permutation[j]['centre'][axis] - permutation[i]['centre'][axis] for axis in range(2)]
+                un, vn = math.hypot(*u), math.hypot(*v)
+                if un and vn:
+                    score += (u[0] * v[0] + u[1] * v[1]) / (un * vn)
+            ranked.append((score, permutation))
+        ranked.sort(key=lambda item: item[0], reverse=True)
+        if ranked[0][0] <= 0 or (len(ranked) > 1 and ranked[0][0] - ranked[1][0] < 1.0):
+            continue
+        seeds.extend((idf['id'], dxf['id'], 'canonical_relative_frame_direction')
+                     for idf, dxf in zip(left, ranked[0][1]))
+    return seeds
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument('component_frame_graph', type=Path)
@@ -106,6 +150,7 @@ def main() -> None:
         idf_frames_all, graph['idf']['pipe_frame_incidence'], 'idf')
     dxf_by_id, dxf_pipe_frames, dxf_frame_pipes = build_indexes(
         graph['dxf']['frames'], graph['dxf']['pipe_frame_incidence'], 'dxf')
+    idf_pipe_geometry = {item['id']: item for item in graph['idf'].get('pipe_geometry', [])}
 
     frame_map: dict[str, str] = {}  # idf frame -> dxf frame
     frame_evidence: dict[str, str] = {}
@@ -132,11 +177,16 @@ def main() -> None:
 
     for item in unique_seed_pairs(idf_frames, dxf_frames):
         add_frame(*item)
+    for item in positional_seed_pairs(idf_frames, dxf_frames):
+        add_frame(*item)
 
     dxf_handles = {}
     if args.dxf_pipe_topology and args.dxf_pipe_topology.exists():
         source_pipes = json.loads(args.dxf_pipe_topology.read_text()).get('pipes', [])
         dxf_handles = {item['id']: set(item.get('handles', [])) for item in source_pipes}
+        dxf_geometry = {item['id']: item.get('endpoints', []) for item in source_pipes}
+    else:
+        dxf_geometry = {}
     if args.anchor_audit and args.anchor_audit.exists():
         audit = json.loads(args.anchor_audit.read_text())
         for direct in audit.get('direct_anchor_matches', []):
@@ -160,6 +210,35 @@ def main() -> None:
         for idf_frame_id, dxf_frame_id in list(frame_map.items()):
             left = [item for item in idf_frame_pipes[idf_frame_id] if item in allowed]
             right = list(dxf_frame_pipes[dxf_frame_id])
+            if len(left) == len(right) == 3:
+                # A paired tee/branch has three arms.  The arm ordering is
+                # determined from its projected outward vectors, not from pipe
+                # creation order.  This breaks repeated tee symmetry only
+                # when the engineering coordinate convention provides a clear
+                # angular winner.
+                candidates = []
+                for permutation in itertools.permutations(right):
+                    score = 0.0; valid = True
+                    for idf_pipe, dxf_pipe in zip(left, permutation):
+                        idf_endpoints = [idf_pipe_geometry[idf_pipe]['a2'], idf_pipe_geometry[idf_pipe]['b2']]
+                        u = outward_vector(idf_by_id[idf_frame_id].get('centre'), idf_endpoints)
+                        v = outward_vector(dxf_by_id[dxf_frame_id].get('centre'), dxf_geometry.get(dxf_pipe, []))
+                        if not u or not v:
+                            valid = False; break
+                        # IDF canonical axonometric projection and DXF model
+                        # coordinates use opposite vertical signs.  CWR's
+                        # independently audited reducer/elbow chain provides
+                        # the project-local calibration; no sheet sequence is
+                        # involved in this transform.
+                        u[1] *= -1
+                        score += u[0] * v[0] + u[1] * v[1]
+                    if valid:
+                        candidates.append((score, permutation))
+                candidates.sort(key=lambda item: item[0], reverse=True)
+                if candidates and (len(candidates) == 1 or candidates[0][0] - candidates[1][0] >= 1.0):
+                    for idf_pipe, dxf_pipe in zip(left, candidates[0][1]):
+                        changed |= add_pipe(idf_pipe, dxf_pipe, 'degree3_projected_arm_direction')
+                continue
             if len(left) != len(right) or len(left) != 2:
                 continue
             # Once one incident pipe was independently fixed, a degree-two

@@ -16,6 +16,11 @@ def direction(edge):
 
 def idf_frame(idf, topology):
     pipes = {pipe['id']: pipe for pipe in idf['pipes']}
+    all_points = [point for pipe in pipes.values() for point in (pipe['a'], pipe['b'])]
+    origin = [min(point[axis] for point in all_points) for axis in range(3)]
+    def project(point):
+        x, y, z = [point[axis] - origin[axis] for axis in range(3)]
+        return [(x - y) * .5, (x + y) * .288675 - z * .57735]
     frames = []
     for connector in topology['connector_hyperedges']:
         members = [pipes[pipe_id] for pipe_id in connector['incident_pipes']]
@@ -32,8 +37,13 @@ def idf_frame(idf, topology):
         bores = sorted({member['bore'] for member in members})
         frames.append({'id': connector['id'], 'kind': frame_type, 'degree': connector['degree'],
                        'record_codes': connector['record_codes'], 'incident_pipes': connector['incident_pipes'],
-                       'bore_change': len(bores) > 1, 'bores': bores})
+                       'bore_change': len(bores) > 1, 'bores': bores,
+                       'centre3': connector.get('centre3'),
+                       'centre': project(connector['centre3']) if connector.get('centre3') else None})
     return {'side': 'idf', 'frames': frames,
+            'pipe_geometry': [{'id': pipe['id'], 'a': pipe['a'], 'b': pipe['b'],
+                               'a2': project(pipe['a']), 'b2': project(pipe['b']), 'bore': pipe['bore']}
+                              for pipe in pipes.values()],
             'pipe_frame_incidence': [{'pipe': pipe_id, 'frames': [frame['id'] for frame in frames if pipe_id in frame['incident_pipes']]}
                                      for pipe_id in pipes]}
 

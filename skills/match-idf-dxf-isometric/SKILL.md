@@ -139,12 +139,20 @@ pipe 相对长度/方向。先得到“本 DXF 页是 IDF 全图的哪个子图�
 哪个子图”的候选，不是逐 `I### → DXF handle`。若缺覆盖或重叠，必须输出
 `topology_global_partial_cover_candidate`，不可为了凑覆盖改用 CONT 或文件顺序。
 
-当且仅当得到 `topology_global_exact_cover_candidate`，才可运行
+当且仅当得到 `topology_global_unique_exact_cover_candidate`，才可运行
 `propagate_page_frame_anchors_v1.py` 做第二层的逐段候选传播：唯一 `reducer ↔ bore_change`、
 `elbow ↔ turn_2`、`branch/tee ↔ junction_3` 为起点；若某个已匹配的二度构件另一侧管段
 唯一，则扩展一条候选。分支的三条 leg 不得凭页序排列，只有已审计的 source-vector outlet
 直接接触可播种一条 `medium` pipe 候选。每次传播必须保留未解项，不得将“页范围已定位”
 误报为“全部 I### 已定位”。
+
+这是**带属性的几何误差容忍子图匹配**，而非按文件顺序的链匹配：IDF/DXF 的节点属性包括
+构件类、度数、管径变化和端点角色；边属性包括连接关系、三轴方向、相对长度和页内坐标。
+先收缩已证明只是 CAD 分割的低重要度节点，再保留 weld/support/branch 为硬边界；这相当于
+homeomorphic/graph-edit matching 的受限工程版本。重复的三通或弯头不以编号顺序消歧：将
+IDF connector centre 作标准轴测投影，按项目验证的 DXF `Y = -IDF_Y` 轴向校准比较同类构件
+之间的相对方向；仅当最佳排列与第二名有明确分差时播种 frame/pipe。该校准是项目级经验，
+须以已审计的 reducer/elbow 链复核，不能跨项目盲用。
 
 对传播结果调用 `render_idf_dxf_match_overlay.py <source.dxf> <propagation.json>
 --dxf-pipe-topology <topology.json> --output <png>`。一个 semantic pipe 可包含多个 source

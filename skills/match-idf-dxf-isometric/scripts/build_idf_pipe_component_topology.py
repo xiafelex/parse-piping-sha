@@ -28,6 +28,7 @@ def main():
     raw = source['raw_geometry_graph']
     records = raw['edges']
     nodes = [node['id'] for node in raw['nodes']]
+    point_by_id = {node['id']: node['point'] for node in raw['nodes']}
     uf = UnionFind(nodes)
     for edge in records:
         if edge['record_code'] != 100:
@@ -45,9 +46,13 @@ def main():
     for root, edges in component_edges.items():
         codes = sorted(edge['record_code'] for edge in edges)
         pipes = sorted(incident[root])
+        member_nodes = sorted({node for edge in edges for node in (edge['a'], edge['b'])})
+        points = [point_by_id[node] for node in member_nodes]
+        centre = [sum(point[axis] for point in points) / len(points) for axis in range(3)]
         hyperedges.append({'id': f'K{len(hyperedges)+1:03d}', 'record_codes': codes,
                            'record_lines': [edge['line'] for edge in edges],
-                           'incident_pipes': pipes, 'degree': len(pipes)})
+                           'incident_pipes': pipes, 'degree': len(pipes),
+                           'node_points': points, 'centre3': centre})
     result = {'algorithm': 'IDF_PIPE_COMPONENT_TOPOLOGY_V1', 'idf': source['idf'],
               'policy': 'raw record-code sequences are evidence, not globally assigned component classes',
               'pipes': [{'id': pipe['id'], 'line': pipe['line'], 'bore': pipe['bore']} for pipe in source['pipes']],

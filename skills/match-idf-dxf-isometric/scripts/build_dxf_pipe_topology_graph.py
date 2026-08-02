@@ -46,7 +46,8 @@ def main():
     result = {
         'algorithm': 'DXF_PIPE_COMPONENT_TOPOLOGY_V1', 'line_key': graph['line_key'],
         'coordinate_policy': 'only page-local semantic contacts; no cross-sheet coordinate merge',
-        'pipes': [{'id': pipe['id'], 'page': pipe['page'], 'kind': pipe['kind'], 'handles': pipe['handles']}
+        'pipes': [{'id': pipe['id'], 'page': pipe['page'], 'kind': pipe['kind'], 'handles': pipe['handles'],
+                   'endpoints': pipe.get('endpoints', [])}
                   for pipe in graph['pipes']],
         'direct_pipe_edges': direct,
         'through_component_hyperedges': through,

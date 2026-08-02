@@ -141,6 +141,7 @@ def main():
                 "has_vector_endpoints": len(derived_endpoints(pipe)[0]) == 2,
                 "endpoint_source": derived_endpoints(pipe)[1],
                 "endpoint_annotations": pipe.get("endpoint_annotations", []),
+                "endpoints": derived_endpoints(pipe)[0],
             }
             pipe_nodes.append(node); page_pipes += 1
             ends = endpoint_nodes(source, index, pipe)
