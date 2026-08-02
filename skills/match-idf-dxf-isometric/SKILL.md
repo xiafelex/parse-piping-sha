@@ -187,6 +187,14 @@ component-frame 邻接、八种轴向变换下的方向余弦、现有独立锚�
 内点均值，不以所有位移的平均值硬拟合。至少 3 个独立 frame，且最佳变换比次优变换多
 2 个内点，才可标为 `unique_project_axis_candidate`；否则只能保留轴向假设，不能喂回编号。
 
+项目级轴向校准必须使用**已经由非方向证据完成的页面**，运行
+`calibrate_project_axis_from_verified_frame_maps_v1.py --sample <frame-graph-A.json> <verified-A.json>
+--sample <frame-graph-B.json> <verified-B.json> --output <calibration.json>`。它比较 frame centre
+的两两相对位移，而非绝对图框位置；至少两张独立页面有 inlier，最佳 D4 变换要比第二名多
+至少两个 `cos ≥ 0.9` 观测，才输出 `project_axis_calibrated`。候选页不得给自己校准。当前
+941 项目以 CWR200001 p1 和 CWS200001 p3 的独立闭合编号链得到 `flip_y`（16 个高一致性
+观测，对次优 identity 多 3 个）；它可作为 DR200001 p1 三通臂方向的独立输入。
+
 这是**带属性的几何误差容忍子图匹配**，而非按文件顺序的链匹配：IDF/DXF 的节点属性包括
 构件类、度数、管径变化和端点角色；边属性包括连接关系、三轴方向、相对长度和页内坐标。
 先收缩已证明只是 CAD 分割的低重要度节点，再保留 weld/support/branch 为硬边界；这相当于
@@ -233,6 +241,13 @@ semantic frame；如果该 frame 在 IDF 和 DXF 都为 degree 2，且已经有�
 整图 overlay 审计。正向回归：CWR200001 p1 在 `I008→P007` 后唯一得到
 `K006(elbow)→C000(elbow)`、`I009→P008`，再由精确端点得到 `I010→P009`；CWS200001 p3
 在 `I013…I019` 后唯一得到 `K007(elbow)→C001(elbow)`、`I012→P000`。
+
+`UNIQUE_REMAINING_COMPONENT_ARM_V1` 是最后一条无排序的闭合规则。运行
+`propagate_unique_remaining_frame_arm_v1.py <frame-graph.json> <current-matches.json> --page N
+--output <json>`：只有 frame pair 已经被独立锚定，且其所有 incident pipe 中恰好差一条、
+其余臂已 injective 地一一匹配时，才匹配剩余一臂。它适用于三通或二度构件，但不能从零条或
+一条已匹配臂推测三通顺序。DR200001 p1 中 `K006↔C023` 已有
+`I014→P014、I015→P006`，所以唯一闭合为 `I013→P005`。
 
 对传播结果调用 `render_idf_dxf_match_overlay.py <source.dxf> <propagation.json>
 --dxf-pipe-topology <topology.json> --output <png>`。一个 semantic pipe 可包含多个 source

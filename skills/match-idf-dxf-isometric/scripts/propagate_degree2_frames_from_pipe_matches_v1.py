@@ -96,7 +96,7 @@ def main():
         rows.append(item)
     result = {**source, 'algorithm': 'DEGREE2_FRAME_PROPAGATION_FROM_PIPE_MATCHES_V1',
               'policy': 'semantic degree-two frame on both sides and one existing matched arm only; no junction ordering, coordinates, CONT, or length',
-              'frame_matches': [{'idf_frame': left, 'dxf_frame': right, 'evidence': frame_evidence[left]}
+              'frame_matches': [{'idf_frame': left, 'dxf_frame': frame_map[left], 'evidence': frame_evidence[left]}
                                 for left in sorted(frame_map)],
               'pipe_matches': rows, 'degree2_frame_additions': added_frames,
               'degree2_pipe_additions': added_pipes}
