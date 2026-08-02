@@ -26,6 +26,15 @@ description: Match one single-page piping IDF to its already classified DXF isom
 - 单页资格仍须扫描 DXF 的 `TEXT`/`MTEXT` 是否含 `CONT. ON`；一张同名文件不等于闭合单页。
 - 只有 `single_closed_candidate` 可直接进入 `CHAIN_100_V1` / `SUPPORT_CONTRACTION_CHAIN_V1`。`multi_page_candidate` 必须先完成 IDF `100` 到 DXF 页的分区，`no_dxf_candidate` 必须报告缺图，不能虚构匹配。
 
+### 多页 `100` 数量预审
+
+在多页分区前，运行
+`scripts/summarize_multi_page_100_counts.py <page-inventory.json> <page-pipe-counts.jsonl> <idf-root> --output <summary.json>`。
+
+- 输出每条多页线的 IDF 有效 `100` 数、各页已识别最终直管片段总数、支架相关片段数、零直管页和缺失统计页。
+- **不得**把这两个总数直接视为同一指标：DXF 总数会受页面切分和 `SUPPORT_*` 片段影响。结果相等仅意味着该线可优先作为“页面分区算法”的验证样本，不能直接宣称已逐条对应。
+- 若存在缺失统计页或未解决直管，停止在数量审计并先补齐 DXF 识别；若所有页已统计，下一步才是为每条 IDF `100` 估计候选页集合。
+
 ## 单页流程
 
 1. 解析 IDF，保留原始文件顺序、行号、原始文本与坐标。对每条 `100` 直管分配 `I001…`，对每条 `120` 焊缝分配 `W001…`；编号稳定且不可因后续匹配重排。
