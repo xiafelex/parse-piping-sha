@@ -148,3 +148,8 @@ description: Reconcile IDF piping straight-pipe records with already classified 
 - `summary.md`：范围资格、数量、置信度分布、未解冲突与人工复核问题。
 
 在用户确认局部编号后，再把该案例作为回归证据记录；不要把文件名、DXF handle 或具体编号顺序提升为通用规则。
+
+使用 `render_idf_dxf_match_overlay.py <source.dxf> <match.json> --output <png>` 生成 DXF
+源矢量复核图。它只高亮匹配 JSON 中已有的 handle，并将 `I###` 放在该源向量中点；
+它不会从 PNG 推断或移动任何图元。`medium` 候选与 `high` 已匹配项必须在标题或审计 JSON
+中保留其置信度，不能在图上伪装成已确认事实。
