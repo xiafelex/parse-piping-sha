@@ -1,11 +1,18 @@
 ---
 name: match-idf-dxf-isometric
-description: Match one single-page piping IDF to its already classified DXF isometric drawing by numbering IDF 100 straight pipes and 120 welds, reconstructing both typed graphs, and producing confidence-scored visual correspondences. Use when an IDF and one corresponding DXF page need weld/straight-pipe reconciliation, topology verification, or numbered comparison images. Do not use for multi-page IDF line splits until the single-page result is verified.
+description: Reconcile IDF piping straight-pipe records with already classified DXF isometric pages: inventory IDF↔DXF page membership, audit IDF 100 counts, identify continuation/support/terminal causes of count differences, and produce confidence-scored numbered topology correspondences. Use after DXF semantic recognition is complete; keep this skill separate from DXF element recognition. Do not match IDF 120 welds unless the user explicitly expands the scope beyond 100.
 ---
 
-# IDF–DXF 单页拓扑匹配
+# IDF–DXF `100` 拓扑核对
 
-仅处理“一个 IDF 管线范围 ↔ 一张 DXF 轴测图”的第一阶段。构件、焊缝、支架、箭头、弯头和最终直管必须先由 `parse-piping-dwg-dxf` 完成矢量识别；本技能不重新从像素或文字推断它们。
+## 强制边界
+
+- 本 skill 只消费已生成的 DXF 图元语义记录；不修改、不补充、也不重新定义 `dxf-piping-isometric` 的焊缝、支架、弯头、法兰或直管识别规则。
+- 本 skill 的工作对象是 **IDF `100` 与 DXF 最终直管图的对应**：文件/页面归属、续页关系、数量差异归因和逐条拓扑匹配。
+- 当前阶段只处理 `100`。`120` 焊缝编号和匹配是独立的后续授权，不得因本 skill 被触发而自动开始。
+- 所有匹配输出写入独立目录；不得向原始 DXF 或图元识别审计文件回写匹配结论。
+
+单页是可先验证的子流程；多页先做页面归属和差异归因。构件、焊缝、支架、箭头、弯头和最终直管必须先由 `dxf-piping-isometric` 完成矢量识别；本技能不重新从像素或文字推断它们。
 
 读取 [single-page-contract.md](references/single-page-contract.md) 后开始。
 
