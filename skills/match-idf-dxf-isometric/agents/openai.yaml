@@ -1,0 +1,4 @@
+interface:
+  display_name: "IDF-DXF 单页匹配"
+  short_description: "匹配单页 IDF 100/120 与已识别 DXF 图拓扑"
+  default_prompt: "请对一份仅对应一张 DXF 的 IDF，编号 100 直管和 120 焊缝，并与 DXF 矢量拓扑逐项匹配，生成整图和局部复核图。"
