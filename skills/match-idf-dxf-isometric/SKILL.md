@@ -216,6 +216,10 @@ frame/pipe 的最终写入。
 遗漏 landmark 有显式负分，而非让整页 exact-isomorphism 失败。若第一、二名 score 差小，或
 候选只依赖一对 landmark 的相对向量，则输出仍是 `review-only`；必须结合 vector-anchored
 局部图、独立 outlet/二度链证据，才可将其中任一 frame map 作为后续 `I### → P###` 传播 seed。
+即使项目级 D4 轴向已独立校准，亦不得仅因“该轴向下只剩一个 skeleton candidate”提升 frame
+map：页界漏画、支架切分和 IDF/DXF 对同一转折的不同粒度展开，会让重复 elbow 在几何方向上
+唯一却在实际 pipe 连通性上错误。CWR200001 p2 / CWS200001 p1 是回归负例；每个提升的 frame
+仍须至少有一个已锚定 incident pipe、唯一 raw continuation，或可审计的 source-vector 接触。
 
 `EXACT_RAW_PIPE_CONTINUATION_V1` 是在既有独立 frame/pipe anchor 之后才允许的窄传播规则。
 运行 `propagate_exact_raw_pipe_continuations_v1.py <idf-topology.json> <dxf-pipe-topology.json>
