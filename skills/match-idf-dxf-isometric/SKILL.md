@@ -143,6 +143,8 @@ pipe 相对长度/方向。先得到“本 DXF 页是 IDF 全图的哪个子图�
 `score_frame_geometry_page_ranges_v1.py <frame-graph> <global-cover> --axis-transform <independently-calibrated-D4>`。
 它只比较同页唯一 `junction_3` 到两个及以上 `turn_2` 与 DXF `branch/tee` 到 `elbow` 的相对方向，
 并同时报告每页 `100` 数和 DXF P 数的偏差；输出仍只能选择/拒绝**页范围 cover**，不得写 I→P。
+由于支架会把一个 IDF `100` 分成多个 DXF P，P 数偏差只能给几何同分候选排**人工复核优先级**；
+不得把它提升成唯一 cover，状态必须为 `geometry_tied_pipe_count_preference_only`。
 DR201010 回归中它以 `flip_y` 明确拒绝 p2 的 `I026…I037`（均值 `-.56274`），支持 `I013…I024`
 （`.99364`）；但 p3/p4 边界的两种 cover 仍同分，必须保持 `geometry_non_discriminating`，不能借
 总数、页序或箭头强配。

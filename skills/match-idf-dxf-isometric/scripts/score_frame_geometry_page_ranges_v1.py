@@ -101,8 +101,11 @@ def main():
     result = {"algorithm": "JUNCTION_ELBOW_RELATIVE_GEOMETRY_V1",
               "policy": "requires independently calibrated axis; scores page range only, never individual I-to-P pairs",
               "axis_transform": args.axis_transform, "candidates": rows,
+              # DXF pipe counts can differ because a support splits one IDF
+              # 100.  Count may rank a review queue but must never turn a
+              # geometrically tied cover into an automatic page assignment.
               "status": "unique_geometry_range_cover_candidate" if geometry_separated else
-                        "unique_geometry_plus_pipe_count_range_cover_candidate" if count_breaks_geometry_tie else
+                        "geometry_tied_pipe_count_preference_only" if count_breaks_geometry_tie else
                         "geometry_non_discriminating"}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2))
