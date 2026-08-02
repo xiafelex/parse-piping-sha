@@ -79,6 +79,9 @@ description: Reconcile IDF piping straight-pipe records with already classified 
    `branch/tee` body 必须与一条 typed pipe 的端点直接矢量接触（默认 ≤1.1 DXF 单位）。
    同时唯一时可输出 `medium` 候选；两条 main leg 不可按距离或页序猜测，必须保留
    `unresolved`，直到完整的构件—焊缝—管段邻接图已建立。
+   已回归验证的正例为 CWR (`I014 → 1A6CB`) 与 CWS (`I008 → 1A85F`)，两者均为
+   `SUPPORT_WELD_PIPE` 且 branch-body 接触距离为 0。DR200001 同时有 5 个分支，
+   此 v1 必须拒绝（而不是任意选一个）并等待多锚点全局分配。
 
 ## 单页流程
 
