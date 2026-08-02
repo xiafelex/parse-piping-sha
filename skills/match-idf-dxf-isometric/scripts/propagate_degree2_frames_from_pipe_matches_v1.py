@@ -67,8 +67,15 @@ def main():
         changed = False
         # A matched pipe can expose one unpaired, same-category frame.
         for left_pipe, right_pipe in list(pipe_map.items()):
-            left = [frame for frame in i_incidence.get(left_pipe, []) if frame not in frame_map]
-            right = [frame for frame in d_incidence.get(right_pipe, []) if frame not in frame_map.values()]
+            # Welds and ordinary drawing decomposition are intentionally not
+            # frame-match candidates.  They remain edge-boundary evidence,
+            # but must not make a unique elbow/reducer continuation appear
+            # ambiguous (for example a DXF pipe can touch both a weld and an
+            # elbow at the same branch vicinity).
+            left = [frame for frame in i_incidence.get(left_pipe, [])
+                    if frame not in frame_map and category(idf_frames[frame], 'idf') is not None]
+            right = [frame for frame in d_incidence.get(right_pipe, [])
+                     if frame not in frame_map.values() and category(dxf_frames[frame], 'dxf') is not None]
             if len(left) == len(right) == 1:
                 changed |= add_frame(left[0], right[0], 'unique_unpaired_frame_on_existing_pipe_match')
         # A paired degree-two component with one known arm fixes only its

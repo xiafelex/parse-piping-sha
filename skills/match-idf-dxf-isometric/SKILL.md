@@ -235,12 +235,36 @@ vector overlay 审计。
 --page N --output <json>`。已匹配 pipe 的两侧各只能有**唯一一个**尚未配对、且同类别的
 semantic frame；如果该 frame 在 IDF 和 DXF 都为 degree 2，且已经有一条相同的 incident pipe
 映射，才可匹配另一条 opposite pipe。它对 elbow/reducer 有效，绝不对三通按臂顺序猜测。
+筛选“唯一未配对 frame”时只计入可语义匹配的 `elbow`/`reducer`/`junction`；DXF weld、普通
+绘图拆分和 IDF 未命名 connector 仍是边界证据，但不得把一个本已唯一的二度构件误报为多候选。
+DR200001 p2 的 `I024→P001` 同时邻接 weld `C006` 与 elbow `C004` 是此 guard 的正向回归。
 
 推荐闭环顺序是：独立 frame/outlet anchor → exact raw continuation → degree-2 opposite arm →
 再次 exact raw continuation，直至没有新增项。每一步仍要执行 one-to-one 检查、源端点检查和
 整图 overlay 审计。正向回归：CWR200001 p1 在 `I008→P007` 后唯一得到
 `K006(elbow)→C000(elbow)`、`I009→P008`，再由精确端点得到 `I010→P009`；CWS200001 p3
 在 `I013…I019` 后唯一得到 `K007(elbow)→C001(elbow)`、`I012→P000`。
+
+`BRANCH_ARM_OTHER_FRAME_SIGNATURE_V1` 处理已独立配对的三通剩余臂：运行
+`propagate_branch_arms_by_other_frame_signature_v1.py <frame-graph.json> <matches.json> --page N
+--output <json>`。三通的臂序和二维方位均不可作为事实；对每条臂只读取离开该三通后的第一个
+**已命名** frame 类别（`elbow`/`reducer`/`junction`，否则为 `open`）。只有所有三条臂的
+injective 完整排列唯一、且与既有独立 arm mapping 相容时才能写入。DR200001 p2 的
+`K012↔C018` 以 `I023→P007` 为独立 outlet anchor，唯一得到 `I022→P000(open)` 与
+`I024→P001(elbow)`；不使用臂的图上排序、长度或 CONT。
+
+`UNIQUE_CORRIDOR_SIGNATURE_V1` 是尚未锚定的跨页走廊的最后保守规则：运行
+`propagate_unique_corridor_signature_v1.py <idf-topology.json> <dxf-pipe-topology.json>
+<matches.json> --page N --length K --output <json>`。仅在剩余 IDF 与该 DXF 页各存在唯一长度 `K`
+的简单路径，并且按序的转移标签完全相同才提出候选：IDF 的精确 pipe-to-pipe 连接与 DXF 的
+同一支架切口都归为 `direct`，但每个 `35+36` 弯头必须与 DXF `elbow` 一一对齐。它绝不把
+正反方向的两个候选自动写入。
+
+若已有**独立匹配**的上一页 pipe，可额外传入 `--prior-dxf --prior-pipe --prior-page --current-dxf`。
+这只在走廊拓扑已经唯一之后验证：上一 pipe 靠近 `CONT. ON DRG N` 端口、当前候选仅一端靠近
+`CONT. FROM DRG previous` 端口，且反向端明显更远。CONT 在这里仅是方向的 corroboration，不能
+产生走廊候选。DR200001 p2 的唯一签名 `elbow,direct,elbow,elbow` 因已匹配的 p1
+`I016→P015` 与页间端口复核，定向为 `I017→P002…I021→P006`；生成整页 overlay 后才可报告。
 
 `UNIQUE_REMAINING_COMPONENT_ARM_V1` 是最后一条无排序的闭合规则。运行
 `propagate_unique_remaining_frame_arm_v1.py <frame-graph.json> <current-matches.json> --page N
