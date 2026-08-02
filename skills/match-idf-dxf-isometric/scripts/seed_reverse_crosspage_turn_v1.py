@@ -41,7 +41,7 @@ def main():
     current_map = {row['idf_pipe']: row['dxf_pipe'] for row in source['pipe_matches'] if row.get('dxf_pipe')}
     current_text = text_port(args.current_dxf, 'CONT. FROM', args.prior_page)
     prior_text = text_port(args.prior_dxf, 'CONT. ON', args.page)
-    additions, frame_additions = [], []
+    additions = []
     if current_text and prior_text:
         known_current = unique_near_port_pipe(
             topology['pipes'], leader_points(args.current_dxf, current_text), args.page, set())
@@ -76,8 +76,6 @@ def main():
                     additions.append({'idf_pipe': previous_idf, 'dxf_pipe': previous_dxf,
                                       'current_idf_pipe': now, 'current_dxf_pipe': current_dxf,
                                       'evidence': 'known_current_vector_port_plus_unique_turn_compatible_prior_leader'})
-                    frame_additions.append({'idf_frame': idf_turn, 'dxf_frame': dxf_turn,
-                                            'evidence': 'crosspage_turn_semantic_compatibility'})
     added = {row['idf_pipe']: row['dxf_pipe'] for row in additions}
     rows = []
     for row in prior['pipe_matches']:
@@ -88,11 +86,14 @@ def main():
         rows.append(item)
     result = {**prior, 'algorithm': 'REVERSE_CROSSPAGE_TURN_V1',
               'policy': 'current CONT.FROM leader must identify an existing mapping; ambiguous prior leader is permitted only if exactly one hit has the required elbow semantics',
-              'pipe_matches': rows, 'frame_matches': list(prior.get('frame_matches', [])) + frame_additions,
-              'reverse_crosspage_additions': additions, 'reverse_crosspage_frame_additions': frame_additions}
+              'pipe_matches': rows,
+              # A DXF elbow next to a page port may represent a different IDF
+              # turn on the visible page.  It validates the candidate type,
+              # but cannot itself be paired across the page boundary.
+              'reverse_crosspage_additions': additions, 'reverse_crosspage_frame_additions': []}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2))
-    print(json.dumps({'pipe_additions': len(additions), 'frame_additions': len(frame_additions)}))
+    print(json.dumps({'pipe_additions': len(additions), 'frame_additions': 0}))
 
 
 if __name__ == '__main__':
