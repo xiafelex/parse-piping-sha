@@ -42,8 +42,12 @@ def main():
             raise ValueError('--dxf-pipe-topology is required for pipe_matches output')
         handles_by_pipe = {pipe['id']: pipe.get('handles', [])
                            for pipe in json.loads(args.dxf_pipe_topology.read_text()).get('pipes', [])}
-        rows = [{'idf_id': item['idf_pipe'], 'handles': handles_by_pipe.get(item['dxf_pipe'], [])}
-                for item in payload['pipe_matches'] if item.get('dxf_pipe')]
+        rows = []
+        for item in payload['pipe_matches']:
+            pipe_ids = ([item['dxf_pipe']] if item.get('dxf_pipe') else item.get('dxf_pipes', []))
+            if pipe_ids:
+                rows.append({'idf_id': item['idf_pipe'],
+                             'handles': [handle for pipe_id in pipe_ids for handle in handles_by_pipe.get(pipe_id, [])]})
     if not rows and 'hypotheses' in payload:
         if not args.dxf_pipe_topology:
             raise ValueError('--dxf-pipe-topology is required for hypothesis output')

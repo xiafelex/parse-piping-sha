@@ -426,6 +426,13 @@ handle，不会从 PNG 识别、移动或补画图元；标题和审计 JSON 必
 回归样本：DR200008 `3/3`、MP2201003 `13/13`，两者均以完整高置信链和精确 source-handle 集合
 提升，并生成原始 DXF 全页编号叠加图。
 
+当 `SUPPORT_CONTRACTION_CHAIN_V1` 完整且 `high` 时，运行
+`promote_support_contraction_audit_v1.py <support-audit> <dxf-topology> --line-key <KEY> --page N`。输出
+`dxf_pipes: [P###...]` 表示**一个 IDF `100` 对应的支架切分段组**；必须保留每个 `P###` 和支架切点，
+不能把它们重写成一根 DXF 线。要求每一个 audit handle 恰好归属一个同页 `P###`，各组不得复用
+`P###`，否则拒绝。renderer 可高亮 `dxf_pipes` 的全部 source vector，但 `I###` 只标一次。
+回归样本：VT200001 `4/4`（8 个 DXF fragments）、VT200002 `5/5`（9 个 fragments）。
+
 ## 匹配约束
 
 - `I###` 只能匹配一条已识别的最终 DXF 直管；不可匹配弯头内部向量、箭头图元、注释线或未分类 raw pipe。
