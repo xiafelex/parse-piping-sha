@@ -82,6 +82,10 @@ description: Reconcile IDF piping straight-pipe records with already classified 
    已回归验证的正例为 CWR (`I014 → 1A6CB`) 与 CWS (`I008 → 1A85F`)，两者均为
    `SUPPORT_WELD_PIPE` 且 branch-body 接触距离为 0。DR200001 同时有 5 个分支，
    此 v1 必须拒绝（而不是任意选一个）并等待多锚点全局分配。
+8. 先运行 `build_dxf_semantic_adjacency.py`，由 typed pipe 的**源矢量端点**到已确认
+   构件 outline/weld boundary 的距离建立邻接边（默认 ≤1.1）。邻近文字、尺寸、图框、
+   或仅在同一局部截图中出现的图元一律不能建边。该图是多分支全局分配的输入；没有它，
+   不得从“离 branch 最近”推断 main leg。
 
 ## 单页流程
 
