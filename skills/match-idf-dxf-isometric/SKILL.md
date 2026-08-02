@@ -139,6 +139,14 @@ pipe 相对长度/方向。先得到“本 DXF 页是 IDF 全图的哪个子图�
 哪个子图”的候选，不是逐 `I### → DXF handle`。若缺覆盖或重叠，必须输出
 `topology_global_partial_cover_candidate`，不可为了凑覆盖改用 CONT 或文件顺序。
 
+若 global cover 仍有多个完整候选，可从**原始 IDF 重建且保留 centre 的 frame graph**后运行
+`score_frame_geometry_page_ranges_v1.py <frame-graph> <global-cover> --axis-transform <independently-calibrated-D4>`。
+它只比较同页唯一 `junction_3` 到两个及以上 `turn_2` 与 DXF `branch/tee` 到 `elbow` 的相对方向，
+并同时报告每页 `100` 数和 DXF P 数的偏差；输出仍只能选择/拒绝**页范围 cover**，不得写 I→P。
+DR201010 回归中它以 `flip_y` 明确拒绝 p2 的 `I026…I037`（均值 `-.56274`），支持 `I013…I024`
+（`.99364`）；但 p3/p4 边界的两种 cover 仍同分，必须保持 `geometry_non_discriminating`，不能借
+总数、页序或箭头强配。
+
 当且仅当得到 `topology_global_unique_exact_cover_candidate`，才可运行
 `propagate_page_frame_anchors_v1.py` 做第二层的逐段候选传播：唯一 `reducer ↔ bore_change`、
 `elbow ↔ turn_2`、`branch/tee ↔ junction_3` 为起点；若某个已匹配的二度构件另一侧管段
@@ -304,6 +312,21 @@ CWR200001 p2 的回归为：`K009↔C013` 先以 `I014→P004` 的 raw-41 outlet
 同一候选形态：CWR p2 为 `1A4D0`，候选尖端 `(389.4,400.0)`、向量 `(-5.829,3.314)`。该脚本输出
 `candidate_requires_visual_confirmation`；只有人工确认其确为北向尖端，才可用作 `FLOW_WEDGE_TIP_V1`
 和项目轴向校准的页方位复核，不能单独产生 `I###→P###`。
+
+确认指北源矢量后，运行 `classify_flow_arrow_bearings_v1.py <flow-arrow-audit.json> <north-audit.json>`；
+它输出每个已确认箭头相对北向的顺时针角和八方位。若只允许使用已看过的候选符号，可显式传
+`--allow-north-candidate`，输出必须保留 `bearing_observations_candidate_north`，仅可用于人工复核，
+不得喂回自动编号。CWR200001 p2 的候选北向下，`P000` 为 NE（54.193°）、`P001` 为 W（277.425°）；
+两个箭头均先由三角形最小内角尖端和 exact-source-handle pipe join 得出。任何“箭头角度”都先以
+DXF 的 source 三点 wedge 计算，不能从屏幕像素、箭头旁注释或 IDF 记录顺序猜测。
+
+`149 ... FLOW` 含有坐标，且当前样本中会落在随后 `100` 的几何线上；但这**不足以**默认把该
+`100 a→b` 当作流向。先运行 `audit_idf149_dxf_arrow_direction_v1.py <idf> <flow-audit> <dxf-topology>
+<verified-matches> --axis-transform <calibrated-D4>`，它只检查已经由非流向证据确认的 I→P。
+回归：CWR p2 的 `I015→P000` 余弦 `.994183`；但 DR200001 p1 的 4 个已确认箭头对仅 1 个
+`≥.9`（其余 `.136`、`-.132`、`-.132`）。因此当前状态是 `149` 可形成**待验证的局部有向观察**，
+而不是可从 IDF 记录顺序自动匹配的规则。只有至少 3 个独立已确认对全部 `cos≥.9`，才可将其作为
+同项目的后续候选消歧；即使如此也只能排序已有拓扑候选，不能建立 I→P 或页归属。
 
 在任何 `CALIBRATED_BRANCH_ARM_DIRECTION_V1` 之前运行
 `audit_branch_arm_geometry_v1.py <frame-graph> <dxf-topology> <matches> --page N`。它比较一个已锚定
