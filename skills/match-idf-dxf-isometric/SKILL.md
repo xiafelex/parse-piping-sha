@@ -16,6 +16,16 @@ description: Match one single-page piping IDF to its already classified DXF isom
 - DXF 必须已有带 source filename、DXF handle、端点锚点、构件类别和管段端点角色的审计记录。
 - `CUT PIPE LENGTH`、材料表、尺寸文字仅可用于最终审计，不可作为建立对应关系的依据。
 
+## 全量范围盘点（先于逐页匹配）
+
+当用户要求“所有 IDF 与 DXF 对应关系”时，先运行
+`scripts/inventory_idf_dxf_pages.py <idf-root> <dxf-root> --output-dir <dir>`。
+
+- 该脚本以源文件名中的管线键建立 **页面候选归属**，输出每条 IDF 的所有 DXF 页码、IDF 重复文件、无图候选和单页 `CONT. ON` 风险。
+- 这是范围盘点，不是 `100` 的对应结论；生成的 `matching_basis` 必须保持为 `source filename line key only`。
+- 单页资格仍须扫描 DXF 的 `TEXT`/`MTEXT` 是否含 `CONT. ON`；一张同名文件不等于闭合单页。
+- 只有 `single_closed_candidate` 可直接进入 `CHAIN_100_V1` / `SUPPORT_CONTRACTION_CHAIN_V1`。`multi_page_candidate` 必须先完成 IDF `100` 到 DXF 页的分区，`no_dxf_candidate` 必须报告缺图，不能虚构匹配。
+
 ## 单页流程
 
 1. 解析 IDF，保留原始文件顺序、行号、原始文本与坐标。对每条 `100` 直管分配 `I001…`，对每条 `120` 焊缝分配 `W001…`；编号稳定且不可因后续匹配重排。
