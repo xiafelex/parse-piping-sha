@@ -163,11 +163,52 @@ def main():
     calibration_status = 'insufficient_independent_geometry_evidence'
     if len(usable) >= 2 and usable[0]['evidence_count'] >= 2 and usable[0]['mean_cosine'] - usable[1]['mean_cosine'] >= .15:
         calibration_status = 'unique_project_axis_candidate'
+
+    # Frame centres are a stronger calibration datum than a single pipe arm:
+    # they describe the relative configuration of several independently
+    # matched components.  Use an error-tolerant (RANSAC-like) inlier count,
+    # because a component centre can be displaced by the outline convention
+    # or a drawing-local simplification.  These hypotheses remain separate
+    # from the selected transform; a caller/reviewer must promote one first.
+    independent_frames = [(item['idf_frame'], item['dxf_frame']) for item in propagation.get('frame_matches', [])
+                          if item.get('evidence') != 'canonical_relative_frame_direction']
+    frame_calibration = []
+    for name in TRANSFORMS:
+        observations = []
+        for (idf_a, dxf_a), (idf_b, dxf_b) in itertools.combinations(independent_frames, 2):
+            if not idf_frames.get(idf_a, {}).get('centre') or not idf_frames.get(idf_b, {}).get('centre'):
+                continue
+            if not dxf_frames.get(dxf_a, {}).get('centre') or not dxf_frames.get(dxf_b, {}).get('centre'):
+                continue
+            dx = (idf_frames[idf_b]['centre'][0] - idf_frames[idf_a]['centre'][0],
+                  idf_frames[idf_b]['centre'][1] - idf_frames[idf_a]['centre'][1])
+            dy = (dxf_frames[dxf_b]['centre'][0] - dxf_frames[dxf_a]['centre'][0],
+                  dxf_frames[dxf_b]['centre'][1] - dxf_frames[dxf_a]['centre'][1])
+            ux, uy = transform(dx, name)
+            norm = math.hypot(ux, uy) * math.hypot(*dy)
+            if norm:
+                observations.append((ux * dy[0] + uy * dy[1]) / norm)
+        inliers = [value for value in observations if value >= .9]
+        frame_calibration.append({'transform': name, 'frame_count': len(independent_frames),
+                                  'relative_observation_count': len(observations),
+                                  'inlier_count_cos_ge_0_9': len(inliers),
+                                  'mean_cosine': round(sum(observations) / len(observations), 5) if observations else None,
+                                  'inlier_mean_cosine': round(sum(inliers) / len(inliers), 5) if inliers else None})
+    frame_calibration.sort(key=lambda item: (-item['inlier_count_cos_ge_0_9'],
+                                             -1 if item['mean_cosine'] is None else -item['mean_cosine'],
+                                             item['transform']))
+    frame_status = 'insufficient_independent_frame_geometry'
+    if len(frame_calibration) > 1 and frame_calibration[0]['frame_count'] >= 3 and \
+       frame_calibration[0]['inlier_count_cos_ge_0_9'] - frame_calibration[1]['inlier_count_cos_ge_0_9'] >= 2:
+        frame_status = 'unique_project_axis_candidate'
     result = {'algorithm': 'PAGE_PIPE_CORRESPONDENCE_CANDIDATES_V1', 'line_key': graph['line_key'], 'page': args.page,
               'policy': 'attributed geometric graph candidates only; no CONT, no page order, no forced assignment',
               'idf_range': allowed, 'axis_transform_used_for_conditional_geometry': selected_axis,
               'axis_calibration_status': calibration_status,
-              'axis_calibration_candidates': calibration, 'idf_pipe_candidates': rows}
+              'axis_calibration_candidates': calibration,
+              'frame_axis_calibration_status': frame_status,
+              'frame_axis_calibration_candidates': frame_calibration,
+              'idf_pipe_candidates': rows}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2))
     print(json.dumps({'line_key': graph['line_key'], 'page': args.page,
