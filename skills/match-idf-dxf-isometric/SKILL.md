@@ -200,6 +200,10 @@ IDF connector centre 作标准轴测投影，并在 `identity/flip/swap` 的离�
 vector（特别是 arrow-transparent pipe）；图中要高亮全部向量，但同一个 `I###` 只标一次，
 避免把一个 IDF `100` 误读为多个编号。
 
+同一 renderer 也可读取 `RAW41_BRANCH_CONTINUATION_HYPOTHESIS_V1` 的 `hypotheses`，使用
+`--crop-to-selected` 生成原始 DXF 局部源矢量复核图。它仍只高亮假设中已经给出的 source
+handle，不会从 PNG 识别、移动或补画图元；标题和审计 JSON 必须保留 `low` 状态。
+
 全量验证用 `batch_component_frame_matching_v1.py`：它从页面清单取唯一 IDF 文件，始终从
 原始 IDF 重建 `raw_geometry_graph` 后再计算框架，并把无 IDF 或多 IDF 候选的管线显式跳过。
 批量结果中的 `topology_global_unique_exact_cover_candidate` 才有资格进入逐页锚点传播。

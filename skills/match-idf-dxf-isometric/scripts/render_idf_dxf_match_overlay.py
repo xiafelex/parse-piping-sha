@@ -31,6 +31,8 @@ def main():
     ap.add_argument('matches', type=Path)
     ap.add_argument('--dxf-pipe-topology', type=Path,
                     help='required only for PROPAGATE_PAGE_FRAME_ANCHORS_V1 output')
+    ap.add_argument('--crop-to-selected', action='store_true',
+                    help='render a local raw-vector review crop around selected candidate handles')
     ap.add_argument('--output', type=Path, required=True)
     args = ap.parse_args()
     payload = json.loads(args.matches.read_text())
@@ -42,6 +44,13 @@ def main():
                            for pipe in json.loads(args.dxf_pipe_topology.read_text()).get('pipes', [])}
         rows = [{'idf_id': item['idf_pipe'], 'handles': handles_by_pipe.get(item['dxf_pipe'], [])}
                 for item in payload['pipe_matches'] if item.get('dxf_pipe')]
+    if not rows and 'hypotheses' in payload:
+        if not args.dxf_pipe_topology:
+            raise ValueError('--dxf-pipe-topology is required for hypothesis output')
+        handles_by_pipe = {pipe['id']: pipe.get('handles', [])
+                           for pipe in json.loads(args.dxf_pipe_topology.read_text()).get('pipes', [])}
+        rows = [{'idf_id': item['idf_pipe'], 'handles': handles_by_pipe.get(item['dxf_pipe'], [])}
+                for item in payload['hypotheses'] if item.get('dxf_pipe')]
     selected = {}
     for row in rows:
         ident = row.get('idf_id', row.get('idf'))
@@ -73,7 +82,13 @@ def main():
         x, y = (a[0] + b[0]) / 2, (a[1] + b[1]) / 2
         ax.text(x, y, ident, color='#facc15', fontsize=9, ha='center', va='center', zorder=6,
                 path_effects=[pe.withStroke(linewidth=2, foreground='#111111')])
-    xs, ys = zip(*all_points); margin = max(max(xs)-min(xs), max(ys)-min(ys))*.03
+    if args.crop_to_selected and labels:
+        selected_points = [point for _, a, b in labels.values() for point in (a, b)]
+        xs, ys = zip(*selected_points)
+        span = max(max(xs)-min(xs), max(ys)-min(ys), 1)
+        margin = span * 4
+    else:
+        xs, ys = zip(*all_points); margin = max(max(xs)-min(xs), max(ys)-min(ys))*.03
     ax.set_xlim(min(xs)-margin,max(xs)+margin);ax.set_ylim(min(ys)-margin,max(ys)+margin);ax.set_aspect('equal');ax.set_axis_off()
     ax.set_title(f'{args.dxf.stem} — yellow: IDF 100 match/candidate label at source-vector segment', color='white', fontsize=11)
     fig.tight_layout();args.output.parent.mkdir(parents=True,exist_ok=True);fig.savefig(args.output,dpi=220,facecolor=fig.get_facecolor());plt.close(fig)
