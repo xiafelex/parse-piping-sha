@@ -209,6 +209,19 @@ frame/pipe 的最终写入。
 候选只依赖一对 landmark 的相对向量，则输出仍是 `review-only`；必须结合 vector-anchored
 局部图、独立 outlet/二度链证据，才可将其中任一 frame map 作为后续 `I### → P###` 传播 seed。
 
+`EXACT_RAW_PIPE_CONTINUATION_V1` 是在既有独立 frame/pipe anchor 之后才允许的窄传播规则。
+运行 `propagate_exact_raw_pipe_continuations_v1.py <idf-topology.json> <dxf-pipe-topology.json>
+<propagation.json> --page N --output <json>`。前提是：已匹配 `I### → P###` 的相邻下一条
+IDF `100` 与它在**原始三维端点**精确相接，且该 DXF `P###` 在**原始 source-vector 端点**处
+只有一条未匹配 DXF pipe 相接。此时可把下一对输出为 `medium_continuation`。
+
+该规则只传播编号，**不会合并**两侧 DXF pipe，也不会忽略支架：若接点恰为支架，仍产出两个
+独立 `I### → P###` 映射。若出现两个候选、编号不连续、IDF 端点不精确重合，或需要跨越焊缝、
+弯头、法兰、变径、阀门、三通、空端，必须停止，不得以图纸顺序或长度补全。当前正向回归为
+`CWR200001` p1 从 `I005→P004` 传播 `I006→P005、I007→P006、I008→P007`，以及
+`CWS200001` p3 从 `I015→P003` 反向传播 `I014→P002、I013→P001`；两者都必须保留原图
+vector overlay 审计。
+
 对传播结果调用 `render_idf_dxf_match_overlay.py <source.dxf> <propagation.json>
 --dxf-pipe-topology <topology.json> --output <png>`。一个 semantic pipe 可包含多个 source
 vector（特别是 arrow-transparent pipe）；图中要高亮全部向量，但同一个 `I###` 只标一次，
