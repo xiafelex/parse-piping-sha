@@ -41,11 +41,16 @@ def load_adapter(path: Path):
 
 def centre(item):
     points = []
-    for key in ('outline', 'anchor'):
+    for key in ('outline', 'anchor', 'welds', 'subpaths', 'strokes'):
         value = item.get(key)
         if not value:
             continue
-        points.extend(value if key == 'outline' else [value])
+        if key in ('welds', 'subpaths'):
+            points.extend(point for path in value for point in path)
+        elif key == 'strokes':
+            points.extend(point for segment in value for point in segment)
+        else:
+            points.extend(value if key == 'outline' else [value])
     if not points:
         return None
     return [round(sum(p[0] for p in points) / len(points), 6),

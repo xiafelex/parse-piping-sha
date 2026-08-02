@@ -116,6 +116,29 @@ description: Reconcile IDF piping straight-pipe records with already classified 
 7. 最终得到 `I### → source page + DXF handle(s)` 后，才逐页调用
    `render_idf_dxf_match_overlay.py` 回写原图；绝不可在跨页拼贴坐标中定位原始 DXF。
 
+### 构件骨架优先（`COMPONENT_FIRST_FRAME_GRAPH_V1`）
+
+初始阶段不要求每条 DXF pipe 与一个 IDF `100` 一一对应。先运行：
+
+- `build_idf_pipe_component_topology.py`：以每个非 `100` 连通记录簇为连接器超边，保留
+  原始 record code；`41` 的三度连接器是 `junction_3`，两条非平行 `100` 臂的连接器是
+  `turn_2`，但不把任一 IDF code 自动命名为弯头/法兰。
+- `build_dxf_pipe_topology_graph.py`：从已确认的 DXF 构件接触和精确端点得到
+  pipe—component—pipe 超边；焊缝接触需保留为边界证据，不能无条件把两边 pipe 合并。
+- `build_component_frame_graphs.py`：把 IDF 的 junction/turn/bore-change 框架与 DXF 的
+  branch/tee/elbow/reducer/flange/valve 框架分别输出。
+
+匹配顺序：唯一三通/支管 → 稀有变径或阀门—法兰组合 → 弯头转向序列 → 两框架之间的
+pipe 相对长度/方向。先得到“本 DXF 页是 IDF 全图的哪个子图”的候选；再从已确认框架
+沿边扩展 `I###`。一开始允许漏/多 pipe、支架分段和跨页显示重叠；这些属于边的证据，
+不能推翻已经唯一的构件骨架。`CONT.` 只能在骨架候选产生后验证拼接。
+
+页内候选用 `score_dxf_page_idf_frame_windows_v1.py` 生成后，运行
+`solve_global_frame_window_cover_v1.py` 将各页候选作为一个全局组合求解：优先选择覆盖完整
+`I001…I###`、不重叠的组合，然后才比较局部构件分数。该选择仍只是“DXF 页对应 IDF 全图
+哪个子图”的候选，不是逐 `I### → DXF handle`。若缺覆盖或重叠，必须输出
+`topology_global_partial_cover_candidate`，不可为了凑覆盖改用 CONT 或文件顺序。
+
 ## 单页流程
 
 1. 解析 IDF，保留原始文件顺序、行号、原始文本与坐标。对每条 `100` 直管分配 `I001…`，对每条 `120` 焊缝分配 `W001…`；编号稳定且不可因后续匹配重排。
