@@ -23,6 +23,20 @@ def parse(path: Path):
     return edges
 
 
+class UnionFind:
+    def __init__(self, values):
+        self.parent = {value: value for value in values}
+    def find(self, value):
+        while self.parent[value] != value:
+            self.parent[value] = self.parent[self.parent[value]]
+            value = self.parent[value]
+        return value
+    def union(self, a, b):
+        a, b = self.find(a), self.find(b)
+        if a != b:
+            self.parent[b] = a
+
+
 def main():
     ap=argparse.ArgumentParser();ap.add_argument('idf',type=Path);ap.add_argument('--output',type=Path,required=True);args=ap.parse_args()
     edges=parse(args.idf);nodes=defaultdict(list)
@@ -49,7 +63,32 @@ def main():
         pipes.append({**edge,'endpoint_signature':[
             {'degree':len([x for x in nodes[p] if x[0]['a']!=x[0]['b']]),
              'codes':sorted(x[0]['code'] for x in nodes[p] if x[0] is not edge)} for p in (edge['a'],edge['b'])]})
-    result={'idf':args.idf.name,'idf_100_count':len(pipes),'geometry_edge_count':len(edges),'branch_nodes':branch,'pipes':pipes}
+    # Contract only the empirically verified branch connector (41).  Generic
+    # non-100 records such as 35/36/150 can be title/block geometry; blindly
+    # contracting them collapses unrelated routes into one artificial node.
+    # They remain endpoint context until their IDF semantics are separately
+    # verified.
+    uf = UnionFind(nodes)
+    for edge in edges:
+        if edge['code'] == 41 and edge['a'] != edge['b']:
+            uf.union(edge['a'], edge['b'])
+    groups = defaultdict(list)
+    for point in nodes:
+        groups[uf.find(point)].append(point)
+    group_id = {root: f'N{index:03d}' for index, root in enumerate(groups, 1)}
+    graph_nodes = defaultdict(list)
+    graph_edges = []
+    for pipe in pipes:
+        left, right = group_id[uf.find(pipe['a'])], group_id[uf.find(pipe['b'])]
+        graph_edges.append({'id': pipe['id'], 'a': left, 'b': right, 'line': pipe['line'], 'bore': pipe['bore']})
+        graph_nodes[left].append(pipe['id']); graph_nodes[right].append(pipe['id'])
+    contracted_nodes = [
+        {'id': node, 'degree': len(incident), 'incident_100': sorted(set(incident)),
+         'point_count': len(groups[root])}
+        for root, node in group_id.items() for incident in [graph_nodes[node]]
+    ]
+    result={'idf':args.idf.name,'idf_100_count':len(pipes),'geometry_edge_count':len(edges),'branch_nodes':branch,
+            'pipes':pipes,'contracted_pipe_graph':{'nodes':contracted_nodes,'edges':graph_edges}}
     args.output.parent.mkdir(parents=True,exist_ok=True);args.output.write_text(json.dumps(result,ensure_ascii=False,indent=2))
     print(json.dumps({'idf_100_count':len(pipes),'branch_node_count':len(branch),'branches':branch},ensure_ascii=False))
 if __name__=='__main__':main()
