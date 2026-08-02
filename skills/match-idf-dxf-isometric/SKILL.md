@@ -419,6 +419,13 @@ handle，不会从 PNG 识别、移动或补画图元；标题和审计 JSON 必
 
 `CHAIN_100_V1` 的输出是算法候选，不是人工确认。只有用户确认整图与局部图后才升级为回归样本。
 
+当单页 `CHAIN_100_V1` 同时满足 `confidence=high`、覆盖全部 IDF `100`、且每条审计 handle 集合在
+该页 `global-dxf-pipe-topology` 中恰好命中一个 `P###` 时，运行
+`promote_chain_match_audit_v1.py <match-audit> <dxf-topology> --line-key <KEY> --page N` 写入统一
+`I###→P###` 结果。它只作 stable-ID 转换，不重算、补齐或提升原算法：任一缺失、重复或多命中即拒绝。
+回归样本：DR200008 `3/3`、MP2201003 `13/13`，两者均以完整高置信链和精确 source-handle 集合
+提升，并生成原始 DXF 全页编号叠加图。
+
 ## 匹配约束
 
 - `I###` 只能匹配一条已识别的最终 DXF 直管；不可匹配弯头内部向量、箭头图元、注释线或未分类 raw pipe。
