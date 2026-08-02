@@ -298,6 +298,13 @@ CWR200001 p2 的回归为：`K009↔C013` 先以 `I014→P004` 的 raw-41 outlet
 `candidate_requires_visual_confirmation`；只有人工确认其确为北向尖端，才可用作 `FLOW_WEDGE_TIP_V1`
 和项目轴向校准的页方位复核，不能单独产生 `I###→P###`。
 
+在任何 `CALIBRATED_BRANCH_ARM_DIRECTION_V1` 之前运行
+`audit_branch_arm_geometry_v1.py <frame-graph> <dxf-topology> <matches> --page N`。它比较一个已锚定
+三通余下两条 IDF 臂与两条 DXF 臂的**无向夹角关系**；若 IDF 两臂近共线（`|cos|≥.98`）但 DXF
+两臂不平行（`|cos|<.90`），输出 `branch_geometry_nonisomorphic_reject_direction`，禁止使用任何
+流向、指北、页坐标或长度为这对臂排序。CWS200001 p1 回归：`I007/I009 |cos|=.99983`，而
+`P001/P002 |cos|=.71511`；它解释了为什么两条候选不能由轴向消歧，而不是箭头识别遗漏。
+
 `ORIENT_UNIQUE_CORRIDOR_BY_BOUNDARY_V1` 只接受已由 `UNIQUE_CORRIDOR_SIGNATURE_V1` 找到的唯一
 IDF/DXF 路径对（仅差正反方向）。检查每个方向的路径端点外一跳：IDF 与 DXF 必须在同一端都
 到达同一种已定义构件（当前仅 `junction/branch/tee`）；只有一个方向至少命中一个边界语义且
