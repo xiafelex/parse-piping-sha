@@ -149,6 +149,13 @@ DR201010 回归中它以 `flip_y` 明确拒绝 p2 的 `I026…I037`（均值 `-.
 （`.99364`）；但 p3/p4 边界的两种 cover 仍同分，必须保持 `geometry_non_discriminating`，不能借
 总数、页序或箭头强配。
 
+当全局 cover 未解、但**某一页**对所有不同范围有 `≥.10` 的独立几何分差时，运行
+`derive_local_geometry_page_cover_v1.py <global-cover> <geometry-audit> --page N`。其输出为
+`local_geometry_page_range_validated`，只能传给 `propagate_page_frame_anchors_v1.py --page N`；
+propagator必须拒绝任何其它页，且输出 policy 明示不对整条线或相邻页作结论。DR201010 p2 回归：
+范围 `I013…I024` 的几何分差 `1.55638`，唯一 frame/outlet 传播得到 `I020→P008`；原始 DXF
+全页 overlay 已复核，仍有 `11/12` 管段保持 unresolved。这是局部编号增量，绝非五页全局闭合。
+
 当且仅当得到 `topology_global_unique_exact_cover_candidate`，才可运行
 `propagate_page_frame_anchors_v1.py` 做第二层的逐段候选传播：唯一 `reducer ↔ bore_change`、
 `elbow ↔ turn_2`、`branch/tee ↔ junction_3` 为起点；若某个已匹配的二度构件另一侧管段

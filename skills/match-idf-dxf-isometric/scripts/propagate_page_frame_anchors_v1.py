@@ -165,8 +165,11 @@ def main() -> None:
     args = parser.parse_args()
     graph = json.loads(args.component_frame_graph.read_text())
     cover = json.loads(args.global_cover.read_text())
-    if cover['status'] != 'topology_global_unique_exact_cover_candidate':
-        raise SystemExit('requires a unique exact global page-range cover; ambiguous or partial covers stay unresolved')
+    globally_validated = cover['status'] == 'topology_global_unique_exact_cover_candidate'
+    locally_validated = (cover['status'] == 'local_geometry_page_range_validated' and
+                         cover.get('page') == args.page and cover.get('idf_range'))
+    if not globally_validated and not locally_validated:
+        raise SystemExit('requires a unique exact global cover or a geometry-validated range for this exact page')
 
     allowed = chosen_range(cover, args.page)
     idf_frames_all = graph['idf']['frames']
@@ -339,7 +342,9 @@ def main() -> None:
         })
     result = {
         'algorithm': 'PROPAGATE_PAGE_FRAME_ANCHORS_V1', 'line_key': graph['line_key'], 'page': args.page,
-        'policy': 'selected page range + component-frame propagation only; no CONT and no page-order matching',
+        'policy': ('geometry-validated local page range + component-frame propagation only; '
+                   'no claim about other pages, no CONT and no page-order matching') if locally_validated else
+                  'selected page range + component-frame propagation only; no CONT and no page-order matching',
         'axis_transform': args.axis_transform,
         'idf_range': sorted(allowed, key=number),
         'frame_matches': [{'idf_frame': left, 'dxf_frame': right,
