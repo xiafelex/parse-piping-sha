@@ -103,7 +103,15 @@ def main():
 
     pages = []
     for path in sorted(args.topology_dir.glob("*.json")):
-        payload = json.loads(path.read_text())
+        try:
+            payload = json.loads(path.read_text())
+        except json.JSONDecodeError:
+            # A concurrent batch refresh writes atomically in current tools;
+            # tolerate a stale pre-atomic/auxiliary JSON rather than treating
+            # it as a drawing page.
+            continue
+        if not payload.get("dxf"):
+            continue
         try:
             key, page = line_page(payload["dxf"])
         except ValueError:

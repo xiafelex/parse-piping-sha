@@ -97,7 +97,8 @@ description: Reconcile IDF piping straight-pipe records with already classified 
 
 1. `build_idf_100_topology.py` 输出稳定 `I###`、`100` 图和 `raw_geometry_graph`。后者保留
    `35/36/41/55/105/110/130/150` 等原始码，供局部序列对比；不得泛化收缩它们。
-2. `summarize_dxf_semantic_components.py` 必须保留每条已分类管段的
+2. `summarize_dxf_semantic_components.py`（全量刷新时用
+   `batch_summarize_dxf_semantic_components.py`）必须保留每条已分类管段的
    `source_vector_segments`。`ARROW_PIPE` 取两端最外侧源矢量端点，箭头仍是透明连续性，
    不是 IDF 构件或端点。
 3. `build_multipage_dxf_global_graph.py --line <KEY> ...` 只建页内端点/构件接触、

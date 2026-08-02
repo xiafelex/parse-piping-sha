@@ -86,17 +86,8 @@ def source_segments(doc, handles):
     return result
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument('dxf', type=Path)
-    ap.add_argument('--adapter', type=Path, required=True)
-    ap.add_argument('--output', type=Path, required=True)
-    args = ap.parse_args()
-    adapter = load_adapter(args.adapter)
-    # Existing adapters use SOURCE to qualify their regression evidence.
-    if hasattr(adapter, 'SOURCE'):
-        adapter.SOURCE = args.dxf
-    doc = ezdxf.readfile(args.dxf)
+def export_semantics(doc, adapter, dxf: Path):
+    """Serialize one already-classified page; reusable by the batch runner."""
     _paths, items = adapter.make_items(doc)
     components = []
     pipes = []
@@ -128,12 +119,27 @@ def main():
                 'anchor': item.get('anchor'),
             })
     result = {
-        'dxf': args.dxf.name,
+        'dxf': dxf.name,
         'pipe_count': len(pipes),
         'component_counts': dict(Counter(x['kind'] for x in components)),
         'components': components,
         'pipes': pipes,
     }
+    return result
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('dxf', type=Path)
+    ap.add_argument('--adapter', type=Path, required=True)
+    ap.add_argument('--output', type=Path, required=True)
+    args = ap.parse_args()
+    adapter = load_adapter(args.adapter)
+    # Existing adapters use SOURCE to qualify their regression evidence.
+    if hasattr(adapter, 'SOURCE'):
+        adapter.SOURCE = args.dxf
+    doc = ezdxf.readfile(args.dxf)
+    result = export_semantics(doc, adapter, args.dxf)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2))
     print(json.dumps({k: result[k] for k in ('dxf', 'pipe_count', 'component_counts')}, ensure_ascii=False))
