@@ -204,6 +204,14 @@ vector（特别是 arrow-transparent pipe）；图中要高亮全部向量，但
 `--crop-to-selected` 生成原始 DXF 局部源矢量复核图。它仍只高亮假设中已经给出的 source
 handle，不会从 PNG 识别、移动或补画图元；标题和审计 JSON 必须保留 `low` 状态。
 
+对需要比较两侧连续关系的低置信假设，运行
+`render_paired_hypothesis_review.py <idf-topology.json> <frame-graph.json> <source.dxf>
+<dxf-pipe-topology.json> <hypotheses.json> --output <png>`。该图左栏只显示候选 `I###`
+及其 IDF connector 邻域的标准轴测投影，右栏只显示同一候选 `P###` 的原始 DXF 局部矢量和
+两端 DXF frame；黄色是候选直管、粉色是 frame。裁切范围必须由候选 pipe 与这些 frame 的
+位置共同确定，不能按整页坐标或仅按短 pipe 长度留白。此图是人工复核证据，绝不升级
+`low` 候选为最终匹配。
+
 全量验证用 `batch_component_frame_matching_v1.py`：它从页面清单取唯一 IDF 文件，始终从
 原始 IDF 重建 `raw_geometry_graph` 后再计算框架，并把无 IDF 或多 IDF 候选的管线显式跳过。
 批量结果中的 `topology_global_unique_exact_cover_candidate` 才有资格进入逐页锚点传播。
