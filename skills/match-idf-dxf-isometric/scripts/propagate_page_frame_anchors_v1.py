@@ -208,8 +208,9 @@ def main() -> None:
         source_pipes = json.loads(args.dxf_pipe_topology.read_text()).get('pipes', [])
         dxf_handles = {item['id']: set(item.get('handles', [])) for item in source_pipes}
         dxf_geometry = {item['id']: item.get('endpoints', []) for item in source_pipes}
+        dxf_kind = {item['id']: item.get('kind') for item in source_pipes}
     else:
-        dxf_geometry = {}
+        dxf_geometry, dxf_kind = {}, {}
     if args.anchor_audit and args.anchor_audit.exists():
         audit = json.loads(args.anchor_audit.read_text())
         direct_rows = list(audit.get('direct_anchor_matches', []))
@@ -246,6 +247,18 @@ def main() -> None:
             for pipe in dxf_frame_pipes[direct['dxf_anchor']]:
                 if wanted <= dxf_handles.get(pipe, set()):
                     add_pipe(direct['outlet_idf_pipe'], pipe, 'audited_direct_branch_outlet')
+
+    # Calibrated outlet-role bridge: an IDF 41 outlet leg has an explicit raw
+    # topology role.  At a *paired* DXF branch it may be matched only when one
+    # and only one incident DXF run is a support+weld pipe.  This is not a
+    # general pipe-role heuristic: no candidate is emitted for all-arrow or
+    # multi-candidate branches.
+    for idf_frame_id, dxf_frame_id in list(frame_map.items()):
+        outlets = [pipe for pipe in idf_by_id[idf_frame_id].get('outlet_pipes', []) if pipe in allowed]
+        dxf_outlets = [pipe for pipe in dxf_frame_pipes.get(dxf_frame_id, [])
+                       if dxf_kind.get(pipe) == 'support_weld_pipe']
+        if len(outlets) == len(dxf_outlets) == 1:
+            add_pipe(outlets[0], dxf_outlets[0], 'idf41_outlet_to_unique_dxf_support_weld_leg')
     changed = True
     while changed:
         changed = False

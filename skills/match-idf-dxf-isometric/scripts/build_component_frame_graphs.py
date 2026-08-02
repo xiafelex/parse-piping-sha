@@ -38,6 +38,7 @@ def idf_frame(idf, topology):
         frames.append({'id': connector['id'], 'kind': frame_type, 'degree': connector['degree'],
                        'record_codes': connector['record_codes'], 'incident_pipes': connector['incident_pipes'],
                        'bore_change': len(bores) > 1, 'bores': bores,
+                       'outlet_pipes': connector.get('outlet_pipes', []),
                        'centre3': connector.get('centre3'),
                        'centre': project(connector['centre3']) if connector.get('centre3') else None})
     return {'side': 'idf', 'frames': frames,

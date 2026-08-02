@@ -152,6 +152,13 @@ pipe 相对长度/方向。先得到“本 DXF 页是 IDF 全图的哪个子图�
 以上方向独立、且最佳变换相对次优变换有明确差值的样本时，三度臂只能输出条件候选或
 `unresolved`。
 
+`IDF41_OUTLET_TO_UNIQUE_SUPPORT_WELD_V1` 是三度臂的另一条、**不依赖投影方向**的窄规则：
+原始 IDF `41` 拓扑必须明确给出且仅给出一个 `outlet_leg`；已配对 DXF `branch/tee` 的三条
+incident pipe 中必须恰有一条 `SUPPORT_WELD_PIPE`，才可输出该 `I### → DXF pipe` 的 `medium`
+候选。全箭头支路、零条/多条 `SUPPORT_WELD_PIPE`、无 `41` outlet 或未配对 frame 一律
+`unresolved`。当前正例为 CWR `I014→P004`、CWS `I008→P008`，并在 DR200001 得到待人工
+复核的 `I014→P014`；尚未积累反例，故不得将此规则泛化为“所有支管必然接支架—焊缝直管”。
+
 运行 `score_page_pipe_correspondence_candidates_v1.py` 生成每个 `I###` 的候选矩阵：匹配的
 component-frame 邻接、八种轴向变换下的方向余弦、现有独立锚点、候选分数与分差。该脚本
 只把已审计 outlet/唯一构件链计入“校准证据”；`degree3_projected_arm_direction` 只标为

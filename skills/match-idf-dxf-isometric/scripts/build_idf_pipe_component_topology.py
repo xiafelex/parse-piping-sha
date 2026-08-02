@@ -29,6 +29,13 @@ def main():
     records = raw['edges']
     nodes = [node['id'] for node in raw['nodes']]
     point_by_id = {node['id']: node['point'] for node in raw['nodes']}
+    # ``branch_nodes`` comes from the raw IDF 41 topology extraction.  Its
+    # outlet leg is structural data, not an interpretation of a DXF shape.
+    outlet_by_point = {
+        tuple(item['point']): sorted(item['incident_100'])
+        for item in source.get('branch_nodes', [])
+        if item.get('role') == 'outlet_leg' and item.get('incident_100')
+    }
     uf = UnionFind(nodes)
     for edge in records:
         if edge['record_code'] != 100:
@@ -49,10 +56,12 @@ def main():
         member_nodes = sorted({node for edge in edges for node in (edge['a'], edge['b'])})
         points = [point_by_id[node] for node in member_nodes]
         centre = [sum(point[axis] for point in points) / len(points) for axis in range(3)]
+        outlet_pipes = sorted({pipe for point in points for pipe in outlet_by_point.get(tuple(point), [])})
         hyperedges.append({'id': f'K{len(hyperedges)+1:03d}', 'record_codes': codes,
                            'record_lines': [edge['line'] for edge in edges],
                            'incident_pipes': pipes, 'degree': len(pipes),
-                           'node_points': points, 'centre3': centre})
+                           'node_points': points, 'centre3': centre,
+                           'outlet_pipes': [pipe for pipe in outlet_pipes if pipe in pipes]})
     result = {'algorithm': 'IDF_PIPE_COMPONENT_TOPOLOGY_V1', 'idf': source['idf'],
               'policy': 'raw record-code sequences are evidence, not globally assigned component classes',
               'pipes': [{'id': pipe['id'], 'line': pipe['line'], 'bore': pipe['bore']} for pipe in source['pipes']],
