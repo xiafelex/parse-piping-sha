@@ -234,6 +234,26 @@ IDF `100` 与它在**原始三维端点**精确相接，且该 DXF `P###` 在**�
 `CWS200001` p3 从 `I015→P003` 反向传播 `I014→P002、I013→P001`；两者都必须保留原图
 vector overlay 审计。
 
+`CROSSPAGE_VECTOR_PORT_TURN_V1` 是跨页时比“CONT 文字位置”更窄的一条补充规则。运行
+`seed_crosspage_vector_port_turn_v1.py` 前，前一页的 pipe 必须已经由**非续页证据**独立匹配；
+IDF 上它必须经唯一 `turn_2` 连向本页唯一未匹配 `100`。此时可读取 `CONT. ON/FROM` 仅用于找到
+其附着的 source-vector 注释引线，并按以下条件播种当前 pipe：
+
+1. 从文字端口追踪短的零宽 `LINE/LWPOLYLINE/POLYLINE` 引线；**排除 0.6 宽管道骨架**，否则
+   一个箭头触到管线会沿真实管线泄漏到相邻 pipe；
+2. 前页已匹配 pipe 必须与其引线包精确端点接触（≤0.15 DXF 单位）；
+3. 当前页在尚未占用的 pipe 中，唯一最近 source-vector 端点须距离引线包 ≤1.0，且与第二近
+   候选的距离差 ≥2.0；这是容忍 CAD 箭头尖端短 0.653 单位的导出误差，而不是文字邻近；
+4. 满足后才写入 `medium_crosspage_vector_port`，并仅可把该 pipe 另一端唯一、未占用的
+   `elbow ↔ turn_2` 作为下一次二度传播 frame。后续 pipe 仍须分别经过 exact raw、二度构件或
+   其他独立证据，绝不跨支架或把页内路径自动补齐。
+
+反事实/回归：CWR200001 `p1 I010→P009` 的零宽引线精确接触前页端点；其 `p2 CONT.FROM`
+引线到 P002 的距离为 0.6527、到第二近 P003/P004 为 4.36，因此只允许
+`I011→P002`，再由唯一弯头得到 `I012→P003`。若把 0.6 骨架纳入追踪会错误触及 P008；若以
+文字距离取候选会把 P000/P001/P003/P004 混入。CWS200001 `p3→p1` 回归必须是 0 新增。
+`CONT` 仍不是页面归属、编号顺序或全局路径的主证据。
+
 `DEGREE2_FRAME_PROPAGATION_FROM_PIPE_MATCHES_V1` 紧跟在上述规则之后：运行
 `propagate_degree2_frames_from_pipe_matches_v1.py <frame-graph.json> <current-matches.json>
 --page N --output <json>`。已匹配 pipe 的两侧各只能有**唯一一个**尚未配对、且同类别的
