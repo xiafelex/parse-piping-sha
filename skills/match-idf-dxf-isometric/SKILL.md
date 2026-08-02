@@ -254,6 +254,19 @@ IDF 上它必须经唯一 `turn_2` 连向本页唯一未匹配 `100`。此时可
 文字距离取候选会把 P000/P001/P003/P004 混入。CWS200001 `p3→p1` 回归必须是 0 新增。
 `CONT` 仍不是页面归属、编号顺序或全局路径的主证据。
 
+`CALIBRATED_BRANCH_ARM_DIRECTION_V1` 仅解决一个**已配对三通**中剩余的两条主管臂。运行
+`resolve_branch_arms_by_calibrated_direction_v1.py` 前必须同时满足：项目级 D4 轴向已经由其他
+页面的非方向证据独立校准；三通的三条 IDF/DXF 臂完整；其中一条已由 outlet、vector-contact
+等非方向证据锚定；剩余两条构成唯一的一对一排列。把 frame centre 到每条 pipe 最远端的向量
+应用已校准变换后，两个余弦都必须 `>=0.80`，且该排列总分比交换排列高 `>=0.50`，才输出
+`medium_calibrated_branch_direction`。不满足任一条件时返回零新增；不可用单臂方向、页序、长度
+或候选页自己的坐标去校准该变换。
+
+CWR200001 p2 的回归为：`K009↔C013` 先以 `I014→P004` 的 raw-41 outlet 锚定，独立项目轴向
+为 `flip_y`；于是仅可得到 `I013→P001 (cos=.83727)` 与 `I015→P000 (cos=.99626)`，全排列分差
+为 3.65829。CWS200001 p1 与 DR200001 p1 在相同脚本下均为 0 新增。这个规则只定位三通臂，
+不允许由此穿过支架/箭头去补齐后续长链。
+
 `DEGREE2_FRAME_PROPAGATION_FROM_PIPE_MATCHES_V1` 紧跟在上述规则之后：运行
 `propagate_degree2_frames_from_pipe_matches_v1.py <frame-graph.json> <current-matches.json>
 --page N --output <json>`。已匹配 pipe 的两侧各只能有**唯一一个**尚未配对、且同类别的
