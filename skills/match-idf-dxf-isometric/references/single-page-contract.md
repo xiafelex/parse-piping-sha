@@ -26,6 +26,16 @@ Do not use title-block position, annotation text position, materials table, cut-
 
 For the first, branch-free algorithm, retain `idf_chain_order`, `dxf_chain_order`, `forward_score`, `reverse_score`, `orientation_margin`, and per-pair score components `{connector, turn_context, bore, role, relative_length}`. A hand-authored mapping file may be used only as a review annotation; label it `human_seed` and never report it as algorithm output.
 
+## Support-contraction audit fields
+
+When `SUPPORT_CONTRACTION_CHAIN_V1` is eligible, retain the pre-contraction
+`dxf_fragment_count`, post-contraction `dxf_group_count`, every `G###` member
+list and source handle list, and each contraction record
+`{left,right,anchor,reason}`. A reason is valid only when the exact common
+endpoint is typed `SUPPORT` on both source fragments. Keep
+`SUPPORT_EMPTY_PIPE` as a singleton group. The match audit must therefore be
+readable as `I### → G### → [C###...]`, never as an unexplained count adjustment.
+
 ## Review images
 
 The full IDF image must show every `I###` and `W###`. The full DXF overlay must show its matched IDs at vector anchors, without covering the original geometry. A local pair must show the same candidate relation on both sides and state the confidence plus the decisive topology evidence.
