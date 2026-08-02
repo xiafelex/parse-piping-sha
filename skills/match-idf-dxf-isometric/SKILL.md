@@ -139,6 +139,18 @@ pipe 相对长度/方向。先得到“本 DXF 页是 IDF 全图的哪个子图�
 哪个子图”的候选，不是逐 `I### → DXF handle`。若缺覆盖或重叠，必须输出
 `topology_global_partial_cover_candidate`，不可为了凑覆盖改用 CONT 或文件顺序。
 
+当且仅当得到 `topology_global_exact_cover_candidate`，才可运行
+`propagate_page_frame_anchors_v1.py` 做第二层的逐段候选传播：唯一 `reducer ↔ bore_change`、
+`elbow ↔ turn_2`、`branch/tee ↔ junction_3` 为起点；若某个已匹配的二度构件另一侧管段
+唯一，则扩展一条候选。分支的三条 leg 不得凭页序排列，只有已审计的 source-vector outlet
+直接接触可播种一条 `medium` pipe 候选。每次传播必须保留未解项，不得将“页范围已定位”
+误报为“全部 I### 已定位”。
+
+对传播结果调用 `render_idf_dxf_match_overlay.py <source.dxf> <propagation.json>
+--dxf-pipe-topology <topology.json> --output <png>`。一个 semantic pipe 可包含多个 source
+vector（特别是 arrow-transparent pipe）；图中要高亮全部向量，但同一个 `I###` 只标一次，
+避免把一个 IDF `100` 误读为多个编号。
+
 ## 单页流程
 
 1. 解析 IDF，保留原始文件顺序、行号、原始文本与坐标。对每条 `100` 直管分配 `I001…`，对每条 `120` 焊缝分配 `W001…`；编号稳定且不可因后续匹配重排。
