@@ -195,6 +195,20 @@ IDF connector centre 作标准轴测投影，并在 `identity/flip/swap` 的离�
 构件之间的相对方向；仅当变换本身已有独立审计证据、且臂排列最佳方案与第二名有明确分差
 时播种 frame/pipe。该校准是项目级经验，须以已审计的 reducer/elbow 链复核，不能跨项目盲用。
 
+在 frame 全局覆盖已经唯一后，可先运行
+`enumerate_attributed_skeleton_candidates_v1.py <frame-graph.json> <global-cover.json>
+--page N --output <json>`。它实现的是依赖最小的 maximum-common-subgraph 候选层：只把
+`junction`、`elbow`、`reducer` 作为 landmark，穿过未命名的 IDF connector、DXF weld 与
+DXF 的图纸拆分节点；以 landmark 类型、度数、可达 landmark 邻域和空端臂为属性计分。
+对于每一个结构同分的候选，它枚举八种轴测 D4 方向变换，以**已映射 frame 之间的相对位移
+余弦**作有界排序项。该变换只是 `geometry_axis_hypothesis`，不是项目校准，不能直接触发
+frame/pipe 的最终写入。
+
+这是处理“支架切分、焊缝/connector 中间节点差异、局部缺框架”的 error-tolerant edit 模型：
+遗漏 landmark 有显式负分，而非让整页 exact-isomorphism 失败。若第一、二名 score 差小，或
+候选只依赖一对 landmark 的相对向量，则输出仍是 `review-only`；必须结合 vector-anchored
+局部图、独立 outlet/二度链证据，才可将其中任一 frame map 作为后续 `I### → P###` 传播 seed。
+
 对传播结果调用 `render_idf_dxf_match_overlay.py <source.dxf> <propagation.json>
 --dxf-pipe-topology <topology.json> --output <png>`。一个 semantic pipe 可包含多个 source
 vector（特别是 arrow-transparent pipe）；图中要高亮全部向量，但同一个 `I###` 只标一次，
