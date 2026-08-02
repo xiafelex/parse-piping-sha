@@ -291,6 +291,13 @@ CWR200001 p2 的回归为：`K009↔C013` 先以 `I014→P004` 的 raw-41 outlet
 书写顺序就是工艺流向。图框左上 `N` 的指北矢量可作为页内方位基准复核同一方向变换；在其箭头尖端
 未由 source vector 独立验证前，不得用 `N` 文字位置替代北向或写入匹配。
 
+`IDF149_FLOW_MARKER_PAGE_RANGE_AUDIT_V1` 只在多页 global-cover 的多个**完整、无重号**方案之间
+做页面范围复核：`149 ... FLOW` 只绑定到其后第一条 `100`，然后比较每个 IDF 范围内的标记数与
+对应 DXF 页 `arrow_pipe` 数，运行 `score_idf_flow_marker_page_ranges_v1.py <idf> <dxf-topology> <cover>`。
+它必须忽略任何漏 `I###` 或重复 `I###` 的 cover，即使其计数更好；只有最小总差严格唯一才输出
+`unique_flow_marker_range_candidate`，仍不能直接编号。DR201010、DR201014、SCR2200001、DR201015
+的回归都为 `flow_marker_non_discriminating`：箭头计数可复核局部范围，但不足以取代构件/邻接证据。
+
 `NORTH_REFERENCE_SOURCE_VECTOR_V1` 是对指北符号的独立审计：运行
 `extract_north_reference_v1.py <page.dxf>`，从精确文字 `N` 附近唯一且明显更近的 6–12 顶点闭合
 源多段线取候选；图框边界即使闭合也必须因距离劣势被排除。当前项目 15 张有图框 `N` 的页面均取得
