@@ -277,6 +277,13 @@ CWR200001 p2 的回归为：`K009↔C013` 先以 `I014→P004` 的 raw-41 outlet
 为 3.65829。CWS200001 p1 与 DR200001 p1 在相同脚本下均为 0 新增。这个规则只定位三通臂，
 不允许由此穿过支架/箭头去补齐后续长链。
 
+`ORIENT_UNIQUE_CORRIDOR_BY_BOUNDARY_V1` 只接受已由 `UNIQUE_CORRIDOR_SIGNATURE_V1` 找到的唯一
+IDF/DXF 路径对（仅差正反方向）。检查每个方向的路径端点外一跳：IDF 与 DXF 必须在同一端都
+到达同一种已定义构件（当前仅 `junction/branch/tee`）；只有一个方向至少命中一个边界语义且
+严格优于反向时，才能给整条走廊编号。CWS200001 p1 回归：唯一 `elbow,direct,direct,direct`
+走廊 `I002…I006` 与 `P003…P007`，末端均外接三通，故按正向映射。没有唯一路径、两向同分、
+或边界仅为 weld/support/文字时必须保持未定向。
+
 `DEGREE2_FRAME_PROPAGATION_FROM_PIPE_MATCHES_V1` 紧跟在上述规则之后：运行
 `propagate_degree2_frames_from_pipe_matches_v1.py <frame-graph.json> <current-matches.json>
 --page N --output <json>`。已匹配 pipe 的两侧各只能有**唯一一个**尚未配对、且同类别的
