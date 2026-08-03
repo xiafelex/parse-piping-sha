@@ -47,21 +47,34 @@ def draw_idf(ax, payload, start, end, boundary):
     all_points = [p for pipe in payload['pipes'] for p in (pipe['a'], pipe['b'])]
     to2 = project_axonometric(all_points)
     displayed = [to2(p) for pipe in selected for p in (pipe['a'], pipe['b'])]
+    xs, ys = zip(*displayed)
+    span = max(max(xs) - min(xs), max(ys) - min(ys), 1)
     for pipe in selected:
         a, b = to2(pipe['a']), to2(pipe['b'])
         color = '#f472b6' if pipe['id'] == boundary else '#facc15'
         width = 4.5 if pipe['id'] == boundary else 2.5
         ax.plot((a[0], b[0]), (a[1], b[1]), color=color, linewidth=width,
                 solid_capstyle='butt', zorder=3)
-        ax.text((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, pipe['id'], color='white', fontsize=8,
-                ha='center', va='center', zorder=4,
-                path_effects=[pe.withStroke(linewidth=2.5, foreground='#151515')])
+        mx, my = (a[0] + b[0]) / 2, (a[1] + b[1]) / 2
+        if pipe['id'] == boundary:
+            # A short boundary edge can have its midpoint label obscured by
+            # adjacent I labels.  Draw an explicit callout rather than relying
+            # on the coloured stroke alone.
+            dx, dy = b[0] - a[0], b[1] - a[1]
+            length = max((dx * dx + dy * dy) ** .5, 1)
+            nx, ny = -dy / length, dx / length
+            ax.annotate(f'{pipe["id"]}  ← unresolved', xy=(mx, my), xytext=(mx + nx * span * .11, my + ny * span * .11),
+                        color='#f472b6', fontsize=9, ha='center', va='center', zorder=8,
+                        arrowprops={'arrowstyle': '-', 'color': '#f472b6', 'lw': 1.5},
+                        path_effects=[pe.withStroke(linewidth=3, foreground='#151515')])
+        else:
+            ax.text(mx, my, pipe['id'], color='white', fontsize=8,
+                    ha='center', va='center', zorder=4,
+                    path_effects=[pe.withStroke(linewidth=2.5, foreground='#151515')])
     # `150` is a one-point IDF support record.  It may be repeated by the
     # source export; show a single blue cross per projected point, only when
     # it lies within this review's local window.  The symbol is evidence, not
     # an I-to-P assignment.
-    xs, ys = zip(*displayed)
-    span = max(max(xs) - min(xs), max(ys) - min(ys), 1)
     margin = span * .09
     seen = set()
     support_count = 0
