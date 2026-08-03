@@ -214,6 +214,14 @@ DR201010 p3 回归：`I025…I037` 与 `I025…I036` 并列，安全内部为 `I
 
 ### 单页轴测复现保真检查
 
+先运行 `audit_idf_option42_viewpoint_v1.py <idf> --north-audit <north.json> --output <option42.json>`。
+ASCII IDF 的前十行是 `10 × 14 = 140` 个 ISOGEN option switch；第 **42** 个值（第 3 行第 14 列）是
+`View Point Control`。已验证的值 `3…10` 分别规定图纸 `N` 箭头在左上/右下/右上/左下，以及对应的带框版本；
+本项目值 `7` 即“左上、带框”。它是 IDF 重建对齐至原始 DXF 北向的**独立来源**：必须与 DXF 源矢量北箭头的
+方向一致（默认容差 30°）。不一致时输出 `viewpoint_north_mismatch`，该页必须停止几何投影消歧；不得悄悄旋转
+DXF 或从已匹配的管段反向校准投影。未知值、无 DXF 北箭头或尚未人工确认的箭头只输出 `declared_only/unresolved`，
+不可作为方向事实。
+
 在采用投影方向参与任何人工复核前，对一个 `single_closed_candidate` 运行
 `render_single_page_iso_triptych_v1.py <idf> <source.dxf> <dxf-topology.json> --north-audit <north.json>`。
 输出必须在同一张图中并列显示：原始 DXF 管线区域、由 DXF 源矢量提取的 pipe 骨架、以及 IDF 的
