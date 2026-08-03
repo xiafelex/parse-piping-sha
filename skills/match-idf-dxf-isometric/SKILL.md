@@ -114,6 +114,15 @@ description: Reconcile IDF piping straight-pipe records with already classified 
    对端口的有限两两配对及页方向枚举拼接方案；每个方案形成一张**整体 DXF 拓扑图**，与
    整体 IDF 图比较分支/弯头/支架/箭头/端点及相对长度，按图编辑代价和几何一致性排序。
    只有全局最优方案存在明确分差时，才把其页连接和页范围作为 `medium` 证据。
+   在实际枚举前先运行
+   `audit_global_page_assembly_readiness_v1.py <graphs-dir> <port-dir> --output <readiness.json>`：
+   它按每页 source-vector 空端、已识别构件类、图形页数量和邻近 CONT 复核点，报告有限端口
+   搜索空间以及 `small_search_space` / `requires_global_scoring` /
+   `insufficient_independent_page_anchors`。这一步**不把 CONT 当连接事实**，也不做局部 `I→P`；
+   其目的只是先区分哪些线可由全图形态判定、哪些线仍缺少独立骨架锚点。
+   若状态为 `insufficient_independent_page_anchors`，不得把数百个 raw pipe 空端直接两两拼接；
+   必须先用已确认的 tee、elbow、reducer、flange/valve 组合和 pipe—component 接触收缩为
+   组件骨架端口，再重新枚举。
 6. `partition_idf_100_across_dxf_pages_v1.py` 仅在“已由图拓扑支持”的实际有图形页形成唯一
    有向路径、且全局 typed-pipe 总数等于 IDF `100` 数时，输出连续 `I###` 的**页范围候选**。
    零图形续页必须保留为上下文，不可分配 `I###`。
