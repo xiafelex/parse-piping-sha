@@ -221,6 +221,12 @@ DR201010 p3 回归：`I025…I037` 与 `I025…I036` 并列，安全内部为 `I
 E/N/Z 轴测投影并刚体旋转到 DXF 北向。** 若三条轴测轴或弯头转向与原始图不一致，状态为
 `projection_fidelity_failed`，不得将该投影用于页范围或管段几何消歧；先修正 IDF 投影或北向审计。
 
+在把既有 `I###→P###` 当作保真正例前，运行
+`audit_idf_dxf_iso_orientation_v1.py <idf> <dxf-topology.json> <matches.json> --north-audit <north.json> --output <audit.json>`。
+它比较 IDF `100` 的 E/N/Z 投影方向与**未变换** DXF 源向量方向（默认无向夹角 ≤5° 为一致）。角度不一致的
+条目仍可保留为“仅拓扑候选”，但不能证明 IDF 轴测定义正确，也不得用于校准投影、方向或几何页范围。必须先用
+独立高置信链/构件锚点验证投影；DXF 为非按比例 ISO 时，长度差不是失败条件，方向与转向序列才是该审计对象。
+
 传播 frame 必须两侧均有已定义且相同的语义类（当前为 `junction`、`elbow`、`reducer`）。
 `terminal_1`、焊缝或任何未命名 frame 的类别值都可能为空；空值相等不是构件匹配，严禁
 以 `None == None` 创建传播 seed，否则会把 IDF 终端伪配为 DXF 焊缝并污染后续直管编号。
