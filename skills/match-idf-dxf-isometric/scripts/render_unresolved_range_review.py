@@ -71,6 +71,25 @@ def draw_idf(ax, payload, start, end, boundary):
             ax.text(mx, my, pipe['id'], color='white', fontsize=8,
                     ha='center', va='center', zorder=4,
                     path_effects=[pe.withStroke(linewidth=2.5, foreground='#151515')])
+    # Draw actual IDF 41 branch vectors.  Their endpoint Z delta is retained
+    # in the label: screen direction in an axonometric projection is not a
+    # substitute for physical elevation direction.
+    branch_count = 0
+    local_ids = {pipe['id'] for pipe in selected}
+    for branch in payload.get('branch_connectors_41', []):
+        incident = [pipe['id'] for pipe in payload['pipes']
+                    if any(distance <= 10 for distance in (
+                        ((pipe['a'][0]-branch['a'][0])**2 + (pipe['a'][1]-branch['a'][1])**2 + (pipe['a'][2]-branch['a'][2])**2)**.5,
+                        ((pipe['b'][0]-branch['a'][0])**2 + (pipe['b'][1]-branch['a'][1])**2 + (pipe['b'][2]-branch['a'][2])**2)**.5))]
+        if not set(incident) & local_ids:
+            continue
+        a, b = to2(branch['a']), to2(branch['b'])
+        ax.plot((a[0], b[0]), (a[1], b[1]), color='#22d3ee', linewidth=2.2, linestyle='--', zorder=6)
+        dz = branch['b'][2] - branch['a'][2]
+        label = f"{branch['id']}  {'UP' if dz > 0 else 'DOWN'} Z{dz:+.0f}"
+        ax.text(b[0], b[1], label, color='#22d3ee', fontsize=7, ha='left', va='bottom', zorder=7,
+                path_effects=[pe.withStroke(linewidth=2, foreground='#151515')])
+        branch_count += 1
     # `150` is a one-point IDF support record.  It may be repeated by the
     # source export; show a single blue cross per projected point, only when
     # it lies within this review's local window.  The symbol is evidence, not
@@ -88,7 +107,8 @@ def draw_idf(ax, payload, start, end, boundary):
         ax.text(x, y, f"{support['id']}/150", color='#38bdf8', fontsize=7, va='bottom', ha='left', zorder=8,
                 path_effects=[pe.withStroke(linewidth=2, foreground='#151515')])
     ax.set_title(f'IDF 100 local topology  {selected[0]["id"]}–{selected[-1]["id"]}\n'
-                 f'pink = unresolved {boundary}; blue × = IDF record 150 support ({support_count} unique)',
+                 f'pink = unresolved {boundary}; blue × = IDF record 150 support ({support_count} unique); '
+                 f'cyan dashed = IDF 41 branch ({branch_count})',
                  color='white', fontsize=10)
 
 
