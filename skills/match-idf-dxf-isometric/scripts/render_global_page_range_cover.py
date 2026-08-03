@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Render a review-only whole-IDF page-range cover beside original DXF page pipe vectors."""
+"""Render an IDF reconstruction beside untransformed source-DXF pipe vectors.
+
+The source DXF is always plotted in its original drawing coordinates.  Only
+the IDF E/N/Z reconstruction is projected and rigidly rotated to the source
+sheet's verified north direction.
+"""
 from __future__ import annotations
 import argparse, json, math
 from pathlib import Path
@@ -51,7 +56,7 @@ def main():
         page=page_for.get(p['id']);col=COLOURS[pages.index(page)%len(COLOURS)] if page in pages else '#6b7280';u,v=pr(p['a']),pr(p['b']);ax.plot((u[0],v[0]),(u[1],v[1]),color=col,lw=3);ax.text((u[0]+v[0])/2,(u[1]+v[1])/2,p['id'],color='white',fontsize=6)
     projected=[pr(p) for p in points]; xmin,xmax=min(p[0] for p in projected),max(p[0] for p in projected);ymin,ymax=min(p[1] for p in projected),max(p[1] for p in projected)
     axis_triad(ax,(xmin,ymin),max(xmax-xmin,ymax-ymin)*.09,north)
-    ax.set_title('IDF complete 100 topology — colour = structurally assigned DXF page range; axes aligned to source DXF north',color='white',fontsize=13)
+    ax.set_title('IDF reconstruction only — E/N/Z projected into the untransformed source-DXF axes',color='white',fontsize=13)
     sub=gs[1].subgridspec((len(pages)+2)//3,3)
     for pos,page in enumerate(pages):
         dax=fig.add_subplot(sub[pos]);dax.set_facecolor('#151515');dax.set_aspect('equal');dax.set_axis_off();col=COLOURS[pos%len(COLOURS)]
@@ -65,6 +70,6 @@ def main():
             dxmin,dxmax=min(q[0] for q in dxf_points),max(q[0] for q in dxf_points)
             dymin,dymax=min(q[1] for q in dxf_points),max(q[1] for q in dxf_points)
             axis_triad(dax,(dxmin,dymin),max(dxmax-dxmin,dymax-dymin)*.12,north)
-        row=next(r for r in ranges if r['page']==page);dax.set_title(f'DXF page {page}: {row["idf_range"][0]}–{row["idf_range"][1]}',color='white',fontsize=9)
+        row=next(r for r in ranges if r['page']==page);dax.set_title(f'Original DXF page {page} (untransformed): {row["idf_range"][0]}–{row["idf_range"][1]}',color='white',fontsize=9)
     fig.suptitle(f'{cover["line_key"]} — global page-range relation (review-only; not individual I→P proof)',color='white',fontsize=15);fig.tight_layout();a.output.parent.mkdir(parents=True,exist_ok=True);fig.savefig(a.output,dpi=180,facecolor=fig.get_facecolor())
 if __name__=='__main__':main()

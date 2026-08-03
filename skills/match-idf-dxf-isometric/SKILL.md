@@ -108,8 +108,9 @@ description: Reconcile IDF piping straight-pipe records with already classified 
    terminal 候选。`CONT. ON/FROM` 只用于**验证或消歧**已经由图拓扑提出的跨页拼接，
    不能作为主匹配特征，也不可自动去重或合并。
 5. **全局页拼接优先（`GLOBAL_PAGE_ASSEMBLY_V1`）**：不得直接使用各图框的纸面坐标平移
-   拼图；但必须将每页由北向符号校正到同一套轴测三轴方向（允许旋转、镜像、统一比例），
-   使 DXF 的倾斜主管/支管方向与 IDF 的 `E/N/Z` 投影方向可比较。每页输出所有 terminal
+   拼图；但必须将**IDF 重建图**由北向符号校正到原始 DXF 的同一套轴测三轴方向。DXF
+   始终保持原始图纸坐标，禁止为比较而旋转、镜像、投影或重绘 DXF；允许的旋转/镜像/统一比例
+   仅用于 IDF 重建的候选视图。这样 DXF 的倾斜主管/支管方向才可与 IDF 的 `E/N/Z` 投影方向比较。每页输出所有 terminal
    port：位置、离开方向、端点语义、相邻构件、`150` 支架、`41` 支管的 `ΔZ`、箭头方向。
    对端口的有限两两配对及页方向枚举拼接方案；每个方案形成一张**整体 DXF 拓扑图**，与
    整体 IDF 图比较分支/弯头/支架/箭头/端点及相对长度，按图编辑代价和几何一致性排序。
@@ -210,6 +211,15 @@ DR201010 p3 回归：`I025…I037` 与 `I025…I036` 并列，安全内部为 `I
 唯一，则扩展一条候选。分支的三条 leg 不得凭页序排列，只有已审计的 source-vector outlet
 直接接触可播种一条 `medium` pipe 候选。每次传播必须保留未解项，不得将“页范围已定位”
 误报为“全部 I### 已定位”。
+
+### 单页轴测复现保真检查
+
+在采用投影方向参与任何人工复核前，对一个 `single_closed_candidate` 运行
+`render_single_page_iso_triptych_v1.py <idf> <source.dxf> <dxf-topology.json> --north-audit <north.json>`。
+输出必须在同一张图中并列显示：原始 DXF 管线区域、由 DXF 源矢量提取的 pipe 骨架、以及 IDF 的
+`100` 加 `35/36` 弯头几何复现。**两张 DXF 图均使用完全未变换的原图坐标；仅 IDF 执行
+E/N/Z 轴测投影并刚体旋转到 DXF 北向。** 若三条轴测轴或弯头转向与原始图不一致，状态为
+`projection_fidelity_failed`，不得将该投影用于页范围或管段几何消歧；先修正 IDF 投影或北向审计。
 
 传播 frame 必须两侧均有已定义且相同的语义类（当前为 `junction`、`elbow`、`reducer`）。
 `terminal_1`、焊缝或任何未命名 frame 的类别值都可能为空；空值相等不是构件匹配，严禁
