@@ -44,7 +44,9 @@ def pipe_number(pipe_id):
 def draw_idf(ax, payload, start, end, boundary):
     pipes = payload['pipes']
     selected = pipes[start - 1:end]
-    to2 = project_axonometric([p for pipe in selected for p in (pipe['a'], pipe['b'])])
+    all_points = [p for pipe in payload['pipes'] for p in (pipe['a'], pipe['b'])]
+    to2 = project_axonometric(all_points)
+    displayed = [to2(p) for pipe in selected for p in (pipe['a'], pipe['b'])]
     for pipe in selected:
         a, b = to2(pipe['a']), to2(pipe['b'])
         color = '#f472b6' if pipe['id'] == boundary else '#facc15'
@@ -54,8 +56,27 @@ def draw_idf(ax, payload, start, end, boundary):
         ax.text((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, pipe['id'], color='white', fontsize=8,
                 ha='center', va='center', zorder=4,
                 path_effects=[pe.withStroke(linewidth=2.5, foreground='#151515')])
+    # `150` is a one-point IDF support record.  It may be repeated by the
+    # source export; show a single blue cross per projected point, only when
+    # it lies within this review's local window.  The symbol is evidence, not
+    # an I-to-P assignment.
+    xs, ys = zip(*displayed)
+    span = max(max(xs) - min(xs), max(ys) - min(ys), 1)
+    margin = span * .09
+    seen = set()
+    support_count = 0
+    for support in payload.get('supports_150', []):
+        x, y = to2(support['point'])
+        key = (round(x, 3), round(y, 3))
+        if key in seen or not (min(xs)-margin <= x <= max(xs)+margin and min(ys)-margin <= y <= max(ys)+margin):
+            continue
+        seen.add(key); support_count += 1
+        ax.scatter(x, y, marker='x', s=65, color='#38bdf8', linewidths=2, zorder=7)
+        ax.text(x, y, f"{support['id']}/150", color='#38bdf8', fontsize=7, va='bottom', ha='left', zorder=8,
+                path_effects=[pe.withStroke(linewidth=2, foreground='#151515')])
     ax.set_title(f'IDF 100 local topology  {selected[0]["id"]}–{selected[-1]["id"]}\n'
-                 f'pink = the unresolved boundary {boundary}', color='white', fontsize=10)
+                 f'pink = unresolved {boundary}; blue × = IDF record 150 support ({support_count} unique)',
+                 color='white', fontsize=10)
 
 
 def draw_dxf(ax, dxf_path, topology, title):

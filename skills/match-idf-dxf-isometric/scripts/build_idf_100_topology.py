@@ -104,8 +104,13 @@ def main():
          'point_count': len(groups[root])}
         for root, node in group_id.items() for incident in [graph_nodes[node]]
     ]
+    # A 150 record is a one-point support location: its second coordinate is
+    # conventionally zero.  Preserve it independently of the 100 graph so a
+    # matcher can use support locations as visible, non-destructive anchors.
+    supports = [{'id': f'S{index:03d}', 'line': edge['line'], 'point': edge['a'], 'bore': edge['bore']}
+                for index, edge in enumerate((edge for edge in edges if edge['code'] == 150), 1)]
     result={'idf':args.idf.name,'idf_100_count':len(pipes),'geometry_edge_count':len(edges),'branch_nodes':branch,
-            'pipes':pipes,'contracted_pipe_graph':{'nodes':contracted_nodes,'edges':graph_edges}}
+            'supports_150':supports,'pipes':pipes,'contracted_pipe_graph':{'nodes':contracted_nodes,'edges':graph_edges}}
     result['raw_geometry_graph'] = raw_graph
     args.output.parent.mkdir(parents=True,exist_ok=True);args.output.write_text(json.dumps(result,ensure_ascii=False,indent=2))
     print(json.dumps({'idf_100_count':len(pipes),'branch_node_count':len(branch),'branches':branch},ensure_ascii=False))
