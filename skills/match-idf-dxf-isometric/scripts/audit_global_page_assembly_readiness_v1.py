@@ -13,7 +13,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 
-def page_signature(graph, page):
+def page_signature(graph, page, frame_rows=()):
     pipes = [p for p in graph["pipes"] if p["page"] == page]
     comps = [c for c in graph.get("components", []) if c["page"] == page]
     page_pipe_ids = {p["id"] for p in pipes}
@@ -27,6 +27,7 @@ def page_signature(graph, page):
     )
     kinds = Counter(p["kind"] for p in pipes)
     component_kinds = Counter(c["kind"] for c in comps)
+    frame_kinds = Counter(row["kind"] for row in frame_rows if row.get("page") == page)
     return {
         "page": page,
         "source": next((p["source"] for p in pipes), None),
@@ -39,6 +40,10 @@ def page_signature(graph, page):
         "raw_port_count": sum(1 for n in endpoints if n.get("role", {}).get("empty")),
         "all_vector_endpoint_count": len(endpoints),
         "distinct_component_classes": len(component_kinds),
+        "structural_frames": dict(sorted(frame_kinds.items())),
+        "structural_signature": "|".join(
+            f"{kind}:{count}" for kind, count in sorted(frame_kinds.items())
+        ) or "none",
     }
 
 
@@ -50,10 +55,12 @@ def classify(pages, continuation_rows):
     # Every undirected binary port pairing is a candidate before IDF scoring.
     pair_space = raw_ports * (raw_ports - 1) // 2
     anchors = sum(p["distinct_component_classes"] for p in graphical)
+    frame_signatures = [p["structural_signature"] for p in graphical]
+    unique_frame_pages = len(set(frame_signatures)) == len(frame_signatures)
     nearby = [r for r in continuation_rows if r["distance"] <= 35]
     if len(graphical) == 2 and len(nearby) >= 2 and raw_ports <= 8:
         return "assembly_candidate_small_search_space"
-    if anchors >= len(graphical) * 3 and raw_ports <= 24:
+    if unique_frame_pages and anchors >= len(graphical) * 3 and raw_ports <= 24:
         return "assembly_candidate_requires_global_scoring"
     return "insufficient_independent_page_anchors"
 
@@ -62,6 +69,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("graphs_dir", type=Path)
     ap.add_argument("port_dir", type=Path)
+    ap.add_argument("--frames-dir", type=Path,
+                    help="component-frame-graphs directory; lets readiness use semantic structure, not raw component count")
+    ap.add_argument("--global-cover-dir", type=Path,
+                    help="existing IDF↔DXF component-frame cover results; records whether whole-line page ranges are unique")
     ap.add_argument("--output", type=Path, required=True)
     args = ap.parse_args()
     lines = []
@@ -72,7 +83,12 @@ def main():
             continue
         port_path = args.port_dir / path.name
         continuation = json.loads(port_path.read_text()).get("candidates", []) if port_path.exists() else []
-        pages = [page_signature(graph, s["page"]) for s in summary]
+        frame_rows = []
+        if args.frames_dir:
+            frame_path = args.frames_dir / path.name
+            if frame_path.exists():
+                frame_rows = json.loads(frame_path.read_text()).get("dxf", {}).get("frames", [])
+        pages = [page_signature(graph, s["page"], frame_rows) for s in summary]
         status = classify(pages, continuation)
         graphical = [p for p in pages if p["pipe_count"]]
         lines.append({
@@ -85,12 +101,26 @@ def main():
                 {"page": r["page"], "endpoint": r["candidate_endpoint"], "distance": r["distance"]}
                 for r in continuation if r["distance"] <= 35
             ],
+            "all_graphical_page_structural_signatures_unique": len({p["structural_signature"] for p in graphical}) == len(graphical),
             "pages": pages,
             "why_not_yet_unique": (
                 "Source-vector endpoints are available, but component/weld continuity has not yet been promoted to a page-level graph. "
                 "Therefore this is a finite candidate set, not a proved assembly."
             ),
         })
+        if args.global_cover_dir:
+            cover_path = args.global_cover_dir / path.name
+            if cover_path.exists():
+                cover = json.loads(cover_path.read_text())
+                lines[-1]["idf_global_cover"] = {
+                    "status": cover.get("status"),
+                    "best_page_ranges": cover.get("best", {}).get("page_ranges", []),
+                    "meaning": (
+                        "whole-line page range is structurally unique"
+                        if cover.get("status") == "topology_global_unique_exact_cover_candidate"
+                        else "page-range relation remains partial or tied; do not emit individual I→P matches"
+                    ),
+                }
     out = {
         "algorithm": "GLOBAL_PAGE_ASSEMBLY_READINESS_V1",
         "policy": "north-normalised geometry + IDF whole-graph scoring is required before confirming a join; CONT labels are review evidence only",
