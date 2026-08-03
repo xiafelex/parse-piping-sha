@@ -88,15 +88,36 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('idf', type=Path); parser.add_argument('dxf', type=Path); parser.add_argument('dxf_topology', type=Path)
     parser.add_argument('--north-audit', type=Path, required=True); parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--page', type=int, help='DXF page number in a multi-page topology file')
+    parser.add_argument('--idf-range', help='inclusive stable IDF range, e.g. I012:I019')
     args = parser.parse_args()
     north = unit(json.loads(args.north_audit.read_text()).get('vector_candidate') or [-.5, .288675])
     raw = linework(ezdxf.readfile(args.dxf)); raw_points = [point for row in raw for point in row]
     if not raw_points: raise SystemExit('DXF contains no supported source-vector primitives')
     topology = json.loads(args.dxf_topology.read_text())
-    dxf_pipes = [row for row in topology['pipes'] if len(row.get('endpoints') or []) == 2]
+    dxf_pipes = [row for row in topology['pipes'] if len(row.get('endpoints') or []) == 2 and (args.page is None or row.get('page') == args.page)]
     dxf_pipe_points = [point for pipe in dxf_pipes for point in pipe['endpoints']]
     if not dxf_pipe_points: raise SystemExit('DXF semantic topology has no endpointed pipes')
-    design = [edge for edge in parse(args.idf) if 35 <= edge['code'] <= 150 and edge['a'] != edge['b'] and edge['a'] != (0.0, 0.0, 0.0) and edge['b'] != (0.0, 0.0, 0.0)]
+    all_edges = parse(args.idf)
+    pipes = [edge for edge in all_edges if edge['code'] == 100]
+    if args.idf_range:
+        start, end = (int(value[1:]) for value in args.idf_range.split(':', 1))
+        selected = [edge for edge in pipes if start <= int(edge['id'][1:]) <= end]
+    else:
+        selected = pipes
+    if not selected: raise SystemExit('IDF range selected no 100 records')
+    # A page-level reconstruction includes only the selected 100 records and
+    # contiguous 35/36 elbow records.  It never crosses into the next page's
+    # 100 records simply because coordinates happen to touch.
+    elbow_pool = [edge for edge in all_edges if edge['code'] in {35, 36} and edge['a'] != edge['b']]
+    known_points = {point for edge in selected for point in (edge['a'], edge['b'])}
+    elbows = []
+    while True:
+        additions = [edge for edge in elbow_pool if edge not in elbows and (edge['a'] in known_points or edge['b'] in known_points)]
+        if not additions: break
+        elbows.extend(additions)
+        known_points.update(point for edge in additions for point in (edge['a'], edge['b']))
+    design = selected + elbows
     project = project_idf(design, north)
     idf_rows = [(edge, project(edge['a']), project(edge['b'])) for edge in design]
     idf_points = [point for _edge, a, b in idf_rows for point in (a, b)]
@@ -115,7 +136,7 @@ def main():
     style(axes[2], '3. IDF E/N/Z ISO reconstruction (only IDF transformed)', idf_points, north)
     fig.suptitle(f'{args.idf.stem} — one-page ISO orientation audit; yellow=100, cyan=IDF 35/36 elbow geometry', color='white', fontsize=14)
     fig.tight_layout(); args.output.parent.mkdir(parents=True, exist_ok=True); fig.savefig(args.output, dpi=190, facecolor=fig.get_facecolor())
-    print(json.dumps({'idf_100': sum(edge['code'] == 100 for edge in design), 'dxf_pipes': len(dxf_pipes), 'output': str(args.output)}, ensure_ascii=False))
+    print(json.dumps({'idf_100': len(selected), 'idf_range': args.idf_range, 'dxf_page': args.page, 'dxf_pipes': len(dxf_pipes), 'output': str(args.output)}, ensure_ascii=False))
 
 
 if __name__ == '__main__': main()
