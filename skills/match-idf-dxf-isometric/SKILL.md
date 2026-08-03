@@ -257,8 +257,9 @@ component-frame 邻接、八种轴向变换下的方向余弦、现有独立锚�
 --sample <frame-graph-B.json> <verified-B.json> --output <calibration.json>`。它比较 frame centre
 的两两相对位移，而非绝对图框位置；至少两张独立页面有 inlier，最佳 D4 变换要比第二名多
 至少两个 `cos ≥ 0.9` 观测，才输出 `project_axis_calibrated`。候选页不得给自己校准。当前
-941 项目以 CWR200001 p1 和 CWS200001 p3 的独立闭合编号链得到 `flip_y`（16 个高一致性
-观测，对次优 identity 多 3 个）；它可作为 DR200001 p1 三通臂方向的独立输入。
+941 项目以 CWR200001 p1 和 CWS200001 p3 的独立闭合编号链得到 `identity`（20 个高一致性
+观测）；这是修正 IDF `+Z` 向上投影后重新计算的结果。修正前的 `flip_y` 属于旧屏幕投影，
+必须弃用；该 `identity` 校准可作为 DR200001 p1 三通臂方向的独立输入。
 
 这是**带属性的几何误差容忍子图匹配**，而非按文件顺序的链匹配：IDF/DXF 的节点属性包括
 构件类、度数、管径变化和端点角色；边属性包括连接关系、三轴方向、相对长度和页内坐标。

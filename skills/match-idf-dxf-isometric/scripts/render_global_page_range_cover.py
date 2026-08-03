@@ -58,6 +58,13 @@ def main():
         for p in graph['pipes']:
             if p['page']!=page:continue
             u,v=p['endpoints'];dax.plot((u[0],v[0]),(u[1],v[1]),color=col,lw=2.6);dax.text((u[0]+v[0])/2,(u[1]+v[1])/2,p['id'].rsplit(':',1)[-1],color='white',fontsize=5)
+        # Repeat the same source-sheet axes in every raw-DXF pane. This keeps
+        # the projection comparison auditable rather than IDF-only.
+        dxf_points=[q for p in graph['pipes'] if p['page']==page for q in p['endpoints']]
+        if dxf_points:
+            dxmin,dxmax=min(q[0] for q in dxf_points),max(q[0] for q in dxf_points)
+            dymin,dymax=min(q[1] for q in dxf_points),max(q[1] for q in dxf_points)
+            axis_triad(dax,(dxmin,dymin),max(dxmax-dxmin,dymax-dymin)*.12,north)
         row=next(r for r in ranges if r['page']==page);dax.set_title(f'DXF page {page}: {row["idf_range"][0]}–{row["idf_range"][1]}',color='white',fontsize=9)
     fig.suptitle(f'{cover["line_key"]} — global page-range relation (review-only; not individual I→P proof)',color='white',fontsize=15);fig.tight_layout();a.output.parent.mkdir(parents=True,exist_ok=True);fig.savefig(a.output,dpi=180,facecolor=fig.get_facecolor())
 if __name__=='__main__':main()
