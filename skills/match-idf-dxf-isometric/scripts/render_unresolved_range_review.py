@@ -140,11 +140,22 @@ def draw_dxf(ax, dxf_path, topology, title):
             ax.text(mx, my, pipe_number(pipe['id']), color='white', fontsize=6.5, ha='center', va='center',
                     zorder=6, path_effects=[pe.withStroke(linewidth=2, foreground='#151515')])
             point_pool.extend(points)
+    # Make the DXF support evidence explicit as well.  Raw support geometry is
+    # deliberately left visible below; the magenta cross is only its detected
+    # centre, numbered in source-page order for manual count reconciliation.
+    supports = [component for component in topology.get('components', [])
+                if component.get('kind') == 'support' and Path(component.get('source', '')).name == dxf_path.name]
+    for index, support in enumerate(supports, 1):
+        x, y = support['centre']
+        ax.scatter(x, y, marker='x', s=55, color='#f472b6', linewidths=1.8, zorder=8)
+        ax.text(x, y, f'DS{index:02d}', color='#f472b6', fontsize=6.5, ha='left', va='bottom', zorder=9,
+                path_effects=[pe.withStroke(linewidth=2, foreground='#151515')])
+        point_pool.append((x, y))
     if point_pool:
         xs, ys = zip(*point_pool); span = max(max(xs) - min(xs), max(ys) - min(ys), 1)
         margin = span * .12
         ax.set_xlim(min(xs) - margin, max(xs) + margin); ax.set_ylim(min(ys) - margin, max(ys) + margin)
-    ax.set_title(title + '\ncolours are DXF pipe categories only; no I-to-P assignment is implied',
+    ax.set_title(title + f'\nmagenta × = DXF support ({len(supports)}); colours are pipe categories only; no I-to-P assignment is implied',
                  color='white', fontsize=9)
 
 
