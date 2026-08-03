@@ -25,7 +25,7 @@ def segments(entity):
 def project(points):
     origin = [min(point[axis] for point in points) for axis in range(3)]
     return lambda point: ((point[0] - origin[0] - (point[1] - origin[1])) * .5,
-                          ((point[0] - origin[0] + point[1] - origin[1]) * .288675 -
+                          ((point[0] - origin[0] + point[1] - origin[1]) * .288675 +
                            (point[2] - origin[2]) * .57735))
 
 

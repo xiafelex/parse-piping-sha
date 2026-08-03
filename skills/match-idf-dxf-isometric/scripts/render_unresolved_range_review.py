@@ -33,7 +33,7 @@ def project_axonometric(points):
     origin = [min(p[i] for p in points) for i in range(3)]
     def projected(point):
         x, y, z = (point[i] - origin[i] for i in range(3))
-        return ((x - y) * .5, (x + y) * .288675 - z * .57735)
+        return ((x - y) * .5, (x + y) * .288675 + z * .57735)
     return projected
 
 

@@ -20,7 +20,7 @@ def idf_frame(idf, topology):
     origin = [min(point[axis] for point in all_points) for axis in range(3)]
     def project(point):
         x, y, z = [point[axis] - origin[axis] for axis in range(3)]
-        return [(x - y) * .5, (x + y) * .288675 - z * .57735]
+        return [(x - y) * .5, (x + y) * .288675 + z * .57735]
     frames = []
     for connector in topology['connector_hyperedges']:
         members = [pipes[pipe_id] for pipe_id in connector['incident_pipes']]

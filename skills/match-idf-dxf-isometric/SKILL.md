@@ -123,6 +123,12 @@ description: Reconcile IDF piping straight-pipe records with already classified 
    若状态为 `insufficient_independent_page_anchors`，不得把数百个 raw pipe 空端直接两两拼接；
    必须先用已确认的 tee、elbow、reducer、flange/valve 组合和 pipe—component 接触收缩为
    组件骨架端口，再重新枚举。
+   人工复核图的 IDF 轴测投影必须以原 DXF 北向符号校正：本项目已由 CWR `I004`
+   （`ΔZ=+157586`，对应 DXF 向上源矢量）验证，IDF 坐标顺序为 `E,N,Z`，其标准图纸投影为
+   `u=.5(E−N)`、`v=.288675(E+N)+.57735Z`。因此 **`+Z` 必须向上绘制**；不得沿用把 Z
+   取负的屏幕坐标投影。N 轴应与每页提取的 DXF 北向矢量重合；E、Z 轴须同时显示在对比图中。
+   投影修正后必须重建所有依赖投影的 frame centre、几何范围评分和人工复核 PNG，旧投影结果
+   不得作为几何消歧证据。
 6. `partition_idf_100_across_dxf_pages_v1.py` 仅在“已由图拓扑支持”的实际有图形页形成唯一
    有向路径、且全局 typed-pipe 总数等于 IDF `100` 数时，输出连续 `I###` 的**页范围候选**。
    零图形续页必须保留为上下文，不可分配 `I###`。

@@ -13,7 +13,7 @@ def main():
  # this canonical view preserves topology and relative length, not DXF paper position.
  origin=(min(min(e['a'][0],e['b'][0]) for e in edges),min(min(e['a'][1],e['b'][1]) for e in edges),min(min(e['a'][2],e['b'][2]) for e in edges))
  def p(q):
-  x,y,z=(q[i]-origin[i] for i in range(3));return ((x-y)*.5,(x+y)*.288675-z*.57735)
+  x,y,z=(q[i]-origin[i] for i in range(3));return ((x-y)*.5,(x+y)*.288675+z*.57735)
  fig,ax=plt.subplots(figsize=(12,12),facecolor='#151515');ax.set_facecolor('#151515')
  for e in branch:
   u,v=p(e['a']),p(e['b']);ax.plot((u[0],v[0]),(u[1],v[1]),color='#22d3ee',lw=2,ls='--')

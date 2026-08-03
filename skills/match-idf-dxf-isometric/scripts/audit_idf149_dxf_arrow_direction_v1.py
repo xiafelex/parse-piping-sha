@@ -18,7 +18,7 @@ def number(value):
 
 def project(point, origin):
     x, y, z = (point[index] - origin[index] for index in range(3))
-    return ((x - y) * .5, (x + y) * .288675 - z * .57735)
+    return ((x - y) * .5, (x + y) * .288675 + z * .57735)
 
 
 def transform(vector, name):

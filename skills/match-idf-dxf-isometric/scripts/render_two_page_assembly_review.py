@@ -13,7 +13,7 @@ def project(ps):
  o=[min(p[i] for p in ps) for i in range(3)]
  return lambda p: (
   (p[0]-o[0]-p[1]+o[1])*.5,
-  (p[0]-o[0]+p[1]-o[1])*.288675-(p[2]-o[2])*.57735,
+  (p[0]-o[0]+p[1]-o[1])*.288675+(p[2]-o[2])*.57735,
  )
 def main():
  ap=argparse.ArgumentParser();ap.add_argument('idf',type=Path);ap.add_argument('graph',type=Path);ap.add_argument('dxf_dir',type=Path);ap.add_argument('--left',required=True);ap.add_argument('--right',required=True);ap.add_argument('--output',type=Path,required=True);a=ap.parse_args()

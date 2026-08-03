@@ -36,7 +36,7 @@ def canonical_projection(edges):
     origin = tuple(min(min(edge['a'][axis], edge['b'][axis]) for edge in edges) for axis in range(3))
     def project(point):
         x, y, z = (point[index] - origin[index] for index in range(3))
-        return ((x - y) * .5, (x + y) * .288675 - z * .57735)
+        return ((x - y) * .5, (x + y) * .288675 + z * .57735)
     return project
 
 
