@@ -38,10 +38,6 @@ def project_vector(vector, north):
     return (cosine * x - sine * y, sine * x + cosine * y)
 
 
-def local_id(value):
-    return value.rsplit(':', 1)[-1] if value else value
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('idf', type=Path)
@@ -54,10 +50,12 @@ def main():
 
     north = unit(json.loads(args.north_audit.read_text())['vector_candidate'])
     idf = {edge['id']: edge for edge in parse(args.idf) if edge['code'] == 100}
-    dxf = {local_id(pipe['id']): pipe for pipe in json.loads(args.dxf_topology.read_text())['pipes']}
+    # P001 repeats on every DXF page. Keep the full `source.dxf:P001` key;
+    # stripping the source would silently compare a match to another page.
+    dxf = {pipe['id']: pipe for pipe in json.loads(args.dxf_topology.read_text())['pipes']}
     rows = []
     for match in json.loads(args.matches.read_text()).get('pipe_matches', []):
-        iid, pid = match.get('idf_pipe'), local_id(match.get('dxf_pipe'))
+        iid, pid = match.get('idf_pipe'), match.get('dxf_pipe')
         if iid not in idf or pid not in dxf or len(dxf[pid].get('endpoints') or []) != 2:
             continue
         edge, pipe = idf[iid], dxf[pid]
