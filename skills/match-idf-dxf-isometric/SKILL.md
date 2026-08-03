@@ -107,13 +107,20 @@ description: Reconcile IDF piping straight-pipe records with already classified 
 4. `build_multipage_dxf_global_graph.py --line <KEY> ...` 建页内端点/构件接触、续页端口和
    terminal 候选。`CONT. ON/FROM` 只用于**验证或消歧**已经由图拓扑提出的跨页拼接，
    不能作为主匹配特征，也不可自动去重或合并。
-5. `partition_idf_100_across_dxf_pages_v1.py` 仅在“已由图拓扑支持”的实际有图形页形成唯一
+5. **全局页拼接优先（`GLOBAL_PAGE_ASSEMBLY_V1`）**：不得直接使用各图框的纸面坐标平移
+   拼图；但必须将每页由北向符号校正到同一套轴测三轴方向（允许旋转、镜像、统一比例），
+   使 DXF 的倾斜主管/支管方向与 IDF 的 `E/N/Z` 投影方向可比较。每页输出所有 terminal
+   port：位置、离开方向、端点语义、相邻构件、`150` 支架、`41` 支管的 `ΔZ`、箭头方向。
+   对端口的有限两两配对及页方向枚举拼接方案；每个方案形成一张**整体 DXF 拓扑图**，与
+   整体 IDF 图比较分支/弯头/支架/箭头/端点及相对长度，按图编辑代价和几何一致性排序。
+   只有全局最优方案存在明确分差时，才把其页连接和页范围作为 `medium` 证据。
+6. `partition_idf_100_across_dxf_pages_v1.py` 仅在“已由图拓扑支持”的实际有图形页形成唯一
    有向路径、且全局 typed-pipe 总数等于 IDF `100` 数时，输出连续 `I###` 的**页范围候选**。
    零图形续页必须保留为上下文，不可分配 `I###`。
-6. 页范围不是 `I### → handle`。只有已验证的 branch-body—pipe 端点直接接触才可在范围内
+7. 页范围不是 `I### → handle`。只有已验证的 branch-body—pipe 端点直接接触才可在范围内
    写 `medium_anchor_candidate`；其余保持 `unresolved`，等待从锚点按构件顺序、转向和端点
    签名做全局传播。
-7. 最终得到 `I### → source page + DXF handle(s)` 后，才逐页调用
+8. 最终得到 `I### → source page + DXF handle(s)` 后，才逐页调用
    `render_idf_dxf_match_overlay.py` 回写原图；绝不可在跨页拼贴坐标中定位原始 DXF。
 
 ### 构件骨架优先（`COMPONENT_FIRST_FRAME_GRAPH_V1`）
