@@ -190,6 +190,14 @@ propagator必须拒绝任何其它页，且输出 policy 明示不对整条线�
 DR201010 p3 回归：`I025…I037` 与 `I025…I036` 并列，安全内部为 `I025…I036`，相对低分范围
 `I014…I025` 的分差 `.32435`；唯一 outlet 传播得到 `I028→P005`，`I037` 保持未解。
 
+当存在**独立于当前几何评分**的人工已核验页归属事实（例如原始 `41` 支管+`150` 支架结构已由
+用户确认 `I037` 位于 DXF 第 3 页），可在 `solve_global_frame_window_cover_v1.py` 中显式提供
+`--page-anchor-constraints <json>`。每条约束只有 `{page, idf_pipe, evidence}`，作用仅是**剔除**
+不包含该 `I###` 的候选页范围；它不能产生 `I###→DXF handle`，不能用 CONT、页序、切管表或本轮
+几何候选本身制造约束。输出必须保留完整约束和 evidence。DR201010 的 `p3∋I037` 约束将五页
+全局 cover 唯一化为 `p1 I001–I012; p2 I013–I024; p3 I025–I037; p4 I038–I048; p5 I049–I067`；
+此结论是“IDF 页范围”而非逐段编号结论。
+
 对仍同分的 cover，运行 `audit_frame_edge_signature_ranges_v1.py <frame-graph> <global-cover>`；
 它比较每页 landmark 之间由同一 pipe 直接连接的 `junction/elbow/reducer` 边类型多重集，且只对
 既有合法范围排序，不能产生 I→P。若结果为 `edge_signature_non_discriminating`，不得假设“构件

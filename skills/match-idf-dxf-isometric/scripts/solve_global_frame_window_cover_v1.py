@@ -54,6 +54,9 @@ def main() -> None:
                         help='number of already ranked local candidates to combine')
     parser.add_argument('--beam-width', type=int, default=4000,
                         help='bounded state count for high-page-count drawings')
+    parser.add_argument('--page-anchor-constraints', type=Path,
+                        help='optional independently verified {line_key, anchors:[{page,idf_pipe,evidence}]} JSON; '
+                             'constraints only reject incompatible page ranges')
     args = parser.parse_args()
 
     candidates = json.loads(args.window_candidates.read_text())
@@ -69,6 +72,23 @@ def main() -> None:
     # This beam retains the same final objective but limits intermediate states
     # by structural score and duplicate coverage.  Two-page regression lines
     # remain exhaustive because their product is below the beam limit.
+    anchors = []
+    if args.page_anchor_constraints and args.page_anchor_constraints.exists():
+        payload = json.loads(args.page_anchor_constraints.read_text())
+        anchors = [row for row in payload.get('anchors', []) if payload.get('line_key') == candidates['line_key']]
+    constrained = {row['page']: [] for row in anchors}
+    for row in anchors:
+        constrained[row['page']].append(index(row['idf_pipe']))
+    # Restrict a page only by a verified membership fact.  This does not score
+    # or order candidates and cannot manufacture an individual DXF mapping.
+    for page, choices in zip(pages, candidate_lists):
+        required = constrained.get(page['page'], [])
+        if required:
+            filtered = [choice for choice in choices if all(value in range_set(choice) for value in required)]
+            if not filtered:
+                raise SystemExit(f'page-anchor constraint leaves no candidate for page {page["page"]}')
+            choices[:] = filtered
+
     states = [([], set(), set(), 0)]  # selection, covered, duplicate, score
     for page, choices in zip(pages, candidate_lists):
         expanded = []
@@ -119,6 +139,7 @@ def main() -> None:
             'component/topology-first page-subgraph selection; no CONT input; '
             'not an I###→DXF-handle mapping'
         ),
+        'verified_page_membership_constraints': anchors,
         'idf_100_count': pipe_count,
         'status': status,
         'best': best,
