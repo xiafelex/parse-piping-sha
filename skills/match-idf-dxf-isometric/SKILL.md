@@ -515,6 +515,9 @@ handle，不会从 PNG 识别、移动或补画图元；标题和审计 JSON 必
 - `dxf-typed-graph.json`：DXF source+handle、锚点、节点/边类型与邻接关系。
 - `match-audit.json` 或 CSV：每个 IDF 编号的候选、得分分解、置信度与拒绝理由。
 - `idf-numbered.png`、`dxf-numbered-overlay.png`、`paired-local-*.png`。
+- 当边界候选并列时，额外写出 `manual-ambiguity-reviews/U##-*.png`：左侧为带 `I###` 的
+  IDF 局部轴测，右侧为各候选页的原始 DXF 矢量和 `P###`。边界 `I###` 仅以粉色提示，
+  不得覆盖成已匹配；标题必须把需要人工判断的页/向量问题写清楚。
 - `summary.md`：范围资格、数量、置信度分布、未解冲突与人工复核问题。
 
 在用户确认局部编号后，再把该案例作为回归证据记录；不要把文件名、DXF handle 或具体编号顺序提升为通用规则。
@@ -523,3 +526,7 @@ handle，不会从 PNG 识别、移动或补画图元；标题和审计 JSON 必
 源矢量复核图。它只高亮匹配 JSON 中已有的 handle，并将 `I###` 放在该源向量中点；
 它不会从 PNG 推断或移动任何图元。`medium` 候选与 `high` 已匹配项必须在标题或审计 JSON
 中保留其置信度，不能在图上伪装成已确认事实。
+
+使用 `render_unresolved_range_review.py` 生成上述人工复核图。它只渲染完整 IDF 拓扑和
+DXF 原始向量/既有语义管段；它不接受或产生 `I→P` 匹配，所以可用于收集用户规律而不污染
+已确认映射。

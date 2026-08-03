@@ -1,0 +1,126 @@
+#!/usr/bin/env python3
+"""Render an intentionally non-committal IDF/DXF range-boundary review image.
+
+This is a human-review aid.  It never proposes individual I-to-P assignments:
+the left panel only shows numbered IDF 100 segments, while the right panels
+show the original DXF source vectors plus the independently detected DXF pipe
+segments.  The user can therefore judge a page boundary without a renderer
+silently turning a hypothesis into a match.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+
+import ezdxf
+import matplotlib.pyplot as plt
+import matplotlib.patheffects as pe
+
+
+def dxf_segments(entity):
+    if entity.dxftype() == 'LINE':
+        yield ((entity.dxf.start.x, entity.dxf.start.y), (entity.dxf.end.x, entity.dxf.end.y))
+    elif entity.dxftype() == 'LWPOLYLINE':
+        points = [(p[0], p[1]) for p in entity.get_points('xy')]
+        yield from zip(points, points[1:])
+    elif entity.dxftype() == 'POLYLINE':
+        points = [(v.dxf.location.x, v.dxf.location.y) for v in entity.vertices]
+        yield from zip(points, points[1:])
+
+
+def project_axonometric(points):
+    origin = [min(p[i] for p in points) for i in range(3)]
+    def projected(point):
+        x, y, z = (point[i] - origin[i] for i in range(3))
+        return ((x - y) * .5, (x + y) * .288675 - z * .57735)
+    return projected
+
+
+def pipe_number(pipe_id):
+    return pipe_id.rsplit(':', 1)[-1]
+
+
+def draw_idf(ax, payload, start, end, boundary):
+    pipes = payload['pipes']
+    selected = pipes[start - 1:end]
+    to2 = project_axonometric([p for pipe in selected for p in (pipe['a'], pipe['b'])])
+    for pipe in selected:
+        a, b = to2(pipe['a']), to2(pipe['b'])
+        color = '#f472b6' if pipe['id'] == boundary else '#facc15'
+        width = 4.5 if pipe['id'] == boundary else 2.5
+        ax.plot((a[0], b[0]), (a[1], b[1]), color=color, linewidth=width,
+                solid_capstyle='butt', zorder=3)
+        ax.text((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, pipe['id'], color='white', fontsize=8,
+                ha='center', va='center', zorder=4,
+                path_effects=[pe.withStroke(linewidth=2.5, foreground='#151515')])
+    ax.set_title(f'IDF 100 local topology  {selected[0]["id"]}–{selected[-1]["id"]}\n'
+                 f'pink = the unresolved boundary {boundary}', color='white', fontsize=10)
+
+
+def draw_dxf(ax, dxf_path, topology, title):
+    doc = ezdxf.readfile(dxf_path)
+    raw = {e.dxf.handle.upper(): list(dxf_segments(e)) for e in doc.modelspace()
+           if e.dxftype() in {'LINE', 'LWPOLYLINE', 'POLYLINE'}}
+    for parts in raw.values():
+        for a, b in parts:
+            ax.plot((a[0], b[0]), (a[1], b[1]), color='#71717a', linewidth=.42, zorder=1)
+    pipes = [p for p in topology['pipes'] if Path(p['id'].rsplit(':', 1)[0]).name == dxf_path.name]
+    point_pool = []
+    colors = {
+        'arrow_pipe': '#facc15', 'support_pipe': '#fb923c', 'support_weld_pipe': '#ea580c',
+        'weld_pipe': '#22c55e', 'weld_empty_pipe': '#38bdf8',
+    }
+    for pipe in pipes:
+        colour = colors.get(pipe['kind'], '#a78bfa')
+        points = []
+        for handle in pipe.get('handles', []):
+            for a, b in raw.get(handle.upper(), []):
+                ax.plot((a[0], b[0]), (a[1], b[1]), color=colour, linewidth=3.3,
+                        solid_capstyle='butt', zorder=5)
+                points.extend((a, b))
+        if not points:
+            points = [tuple(p) for p in pipe.get('endpoints', [])]
+        if points:
+            mx = sum(p[0] for p in points) / len(points); my = sum(p[1] for p in points) / len(points)
+            ax.text(mx, my, pipe_number(pipe['id']), color='white', fontsize=6.5, ha='center', va='center',
+                    zorder=6, path_effects=[pe.withStroke(linewidth=2, foreground='#151515')])
+            point_pool.extend(points)
+    if point_pool:
+        xs, ys = zip(*point_pool); span = max(max(xs) - min(xs), max(ys) - min(ys), 1)
+        margin = span * .12
+        ax.set_xlim(min(xs) - margin, max(xs) + margin); ax.set_ylim(min(ys) - margin, max(ys) + margin)
+    ax.set_title(title + '\ncolours are DXF pipe categories only; no I-to-P assignment is implied',
+                 color='white', fontsize=9)
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('idf_topology', type=Path)
+    parser.add_argument('dxf_pipe_topology', type=Path)
+    parser.add_argument('--idf-range', nargs=2, type=int, required=True, metavar=('START', 'END'))
+    parser.add_argument('--boundary', required=True, help='IDF ID, e.g. I037')
+    parser.add_argument('--dxf', type=Path, nargs='+', required=True)
+    parser.add_argument('--question', required=True)
+    parser.add_argument('--output', type=Path, required=True)
+    args = parser.parse_args()
+    idf = json.loads(args.idf_topology.read_text())
+    topology = json.loads(args.dxf_pipe_topology.read_text())
+    cols = 1 + len(args.dxf)
+    fig, axes = plt.subplots(1, cols, figsize=(7 * cols, 8), facecolor='#151515')
+    if cols == 2:
+        axes = list(axes)
+    for ax in axes:
+        ax.set_facecolor('#151515'); ax.set_aspect('equal'); ax.set_axis_off()
+    draw_idf(axes[0], idf, *args.idf_range, args.boundary)
+    for index, dxf_path in enumerate(args.dxf, 1):
+        draw_dxf(axes[index], dxf_path, topology, f'DXF source vectors — page {dxf_path.stem[-7:-4]}')
+    fig.suptitle(args.question + '\nNo assignment is asserted: please identify which DXF page/vector visibly contains the pink IDF boundary segment.',
+                 color='white', fontsize=13)
+    fig.tight_layout(rect=(0, 0, 1, .91)); args.output.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(args.output, dpi=220, facecolor=fig.get_facecolor()); plt.close(fig)
+    print(json.dumps({'output': str(args.output), 'boundary': args.boundary}, ensure_ascii=False))
+
+
+if __name__ == '__main__':
+    main()
