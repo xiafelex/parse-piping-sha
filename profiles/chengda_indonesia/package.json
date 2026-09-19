@@ -1,0 +1,8 @@
+{
+  "name": "parse-piping-sha-chengda-indonesia",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "playwright": "^1.55.0"
+  }
+}

@@ -1,0 +1,14 @@
+input/
+output/
+assets/signatures/*.png
+*.sha
+*.pcf
+*.pdf
+*.xlsx
+*.xls
+*.csv
+*.png
+node_modules/
+__pycache__/
+*.py[cod]
+.pytest_cache/

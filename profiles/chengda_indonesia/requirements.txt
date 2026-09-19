@@ -1,0 +1,4 @@
+olefile>=0.47
+openpyxl>=3.1
+pypdf>=5.0
+pytest>=8.0

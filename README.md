@@ -29,6 +29,12 @@ The separate DWG/DXF vector and weld-recognition workflow is in
 [`skills/parse-piping-dwg-dxf/SKILL.md`](skills/parse-piping-dwg-dxf/SKILL.md).
 It deliberately does not reuse SHA UCI/PSM rules.
 
+The project-specific Chengda Indonesia renderer and numbered-callout pipeline
+is isolated under
+[`profiles/chengda_indonesia/`](profiles/chengda_indonesia/README.md). Its
+private drawings, tables, generated PDFs and signature assets are not stored in
+this repository.
+
 ## 2026-07 reconstruction handoff
 
 The plain-language Chinese project review, including the SHA architecture,
