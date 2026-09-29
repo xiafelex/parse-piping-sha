@@ -1,0 +1,6 @@
+{
+  "name": "parse-piping-sha-local",
+  "private": true,
+  "description": "Browser renderer dependency shared by isolated project profiles",
+  "dependencies": { "playwright": "1.62.0" }
+}

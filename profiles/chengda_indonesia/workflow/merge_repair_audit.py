@@ -1,0 +1,147 @@
+#!/usr/bin/env python3
+"""Merge successfully repaired page audits into an existing full-unit audit."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+from pathlib import Path
+from _bootstrap import PROJECT_DIR as DATA_DIR, PARSER_DIR as CODE_PARSER_DIR, PROGRAM_DIR as CODE_PROGRAM_DIR, SHARED_DIR
+
+from openpyxl import load_workbook
+
+from convert_chengda_weld_sha_to_pdf import (
+    write_manual_review_log,
+    write_unmatched_number_xlsx,
+)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--main-audit", type=Path, required=True)
+    parser.add_argument("--repair-audit", type=Path, required=True)
+    parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument(
+        "--replace-all-repair-pages",
+        action="store_true",
+        help="Replace every main-audit page present in the repair audit, including successful rows.",
+    )
+    return parser.parse_args()
+
+
+def read_missing_pcf_ids(audit_dir: Path) -> list[str]:
+    workbook_path = audit_dir / "未标注编号人工补标清单.xlsx"
+    if not workbook_path.is_file():
+        return []
+    workbook = load_workbook(workbook_path, read_only=True, data_only=True)
+    if "SHA缺少PCF" not in workbook.sheetnames:
+        return []
+    sheet = workbook["SHA缺少PCF"]
+    return [
+        str(row[0]).strip()
+        for row in sheet.iter_rows(min_row=2, values_only=True)
+        if row and row[0] not in (None, "")
+    ]
+
+
+def repaired_row(page_dir: Path, output_dir: Path, sheet_id: str, page: int) -> dict[str, object]:
+    weld_map = json.loads((page_dir / "weld-map.json").read_text(encoding="utf-8"))
+    verification = json.loads((page_dir / "verification.json").read_text(encoding="utf-8"))
+    management = json.loads(
+        (page_dir / "management-callouts.json").read_text(encoding="utf-8")
+    )
+    callouts = management.get("callouts", [])
+    spool_count = sum(
+        str(item.get("kind", "")).strip().casefold() == "spool"
+        for item in callouts
+    )
+    management_count = len(callouts) - spool_count
+    summary = weld_map.get("summary", {})
+    pdf_path = (output_dir / f"{sheet_id}_{page}.pdf").resolve()
+    if not pdf_path.is_file() or pdf_path.stat().st_size == 0:
+        raise FileNotFoundError(f"Repaired PDF is missing: {pdf_path}")
+    return {
+        "sheet_id": sheet_id,
+        "page": page,
+        "status": "success",
+        "pdf": str(pdf_path),
+        "callout_count": int(verification.get("callout_count", 0)),
+        "management_callout_count": management_count,
+        "spool_callout_count": spool_count,
+        "numbered_weld_count": int(summary.get("numbered_weld_count", 0)),
+        "unmapped_numbered_count": int(summary.get("unmapped_numbered_count", 0)),
+        "ambiguous_count": int(summary.get("ambiguous_count", 0)),
+    }
+
+
+def main() -> int:
+    args = parse_args()
+    main_audit = args.main_audit.resolve()
+    repair_audit = args.repair_audit.resolve()
+    output_dir = args.output_dir.resolve()
+    summary_path = main_audit / "PDF标注汇总.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    missing_pcf_ids = read_missing_pcf_ids(main_audit)
+    repaired_count = 0
+
+    merged_rows: list[dict[str, object]] = []
+    for row in summary.get("rows", []):
+        if row.get("status") != "failed" and not args.replace_all_repair_pages:
+            merged_rows.append(row)
+            continue
+        sheet_id = str(row["sheet_id"])
+        page = int(row["page"])
+        source_page_dir = repair_audit / "pages" / f"{sheet_id}_{page}"
+        required = (
+            source_page_dir / "weld-map.json",
+            source_page_dir / "verification.json",
+            source_page_dir / "management-callouts.json",
+        )
+        if not all(path.is_file() for path in required):
+            merged_rows.append(row)
+            continue
+        target_page_dir = main_audit / "pages" / source_page_dir.name
+        shutil.copytree(source_page_dir, target_page_dir, dirs_exist_ok=True)
+        merged_rows.append(repaired_row(target_page_dir, output_dir, sheet_id, page))
+        repaired_count += 1
+
+    merged_rows.sort(
+        key=lambda row: (str(row.get("sheet_id", "")).casefold(), int(row.get("page", 0)))
+    )
+    summary["rows"] = merged_rows
+    summary["success_pdf_count"] = sum(row.get("status") == "success" for row in merged_rows)
+    summary["failed_pdf_count"] = sum(row.get("status") == "failed" for row in merged_rows)
+    for key in (
+        "callout_count",
+        "management_callout_count",
+        "spool_callout_count",
+        "numbered_weld_count",
+        "unmapped_numbered_count",
+        "ambiguous_count",
+    ):
+        summary[key] = sum(int(row.get(key, 0)) for row in merged_rows)
+    summary_path.write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    write_manual_review_log(main_audit, merged_rows)
+    write_unmatched_number_xlsx(main_audit, merged_rows, missing_pcf_ids)
+    print(
+        json.dumps(
+            {
+                "repaired_count": repaired_count,
+                "job_count": summary.get("job_count", len(merged_rows)),
+                "success_pdf_count": summary["success_pdf_count"],
+                "failed_pdf_count": summary["failed_pdf_count"],
+                "unmapped_numbered_count": summary["unmapped_numbered_count"],
+                "missing_pcf_sha_count": len(missing_pcf_ids),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 1 if summary["failed_pdf_count"] else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

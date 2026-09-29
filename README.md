@@ -1,5 +1,20 @@
 # parse-piping-sha
 
+## 本地正式代码入口（2026-09 整合）
+
+本仓库统一维护两个隔离的项目版本：
+
+- [蓝星 profiles/lanxing](profiles/lanxing/README.md)：固化的蓝星实现及批处理入口。
+- [成达 profiles/chengda_indonesia](profiles/chengda_indonesia/README.md)：持续完善的成达通用规则、单元入口和审计。
+- `shared/`：两个项目原本共用的 PCF 反写代码。
+- `tools/`：开发验证工具。项目输入、输出、签名和参考图字体位于仓库外的项目数据目录。
+
+根目录 Python/MJS 旧命令仅转发蓝星实现；成达从其 profile 入口运行。
+下面是保留的原始研究与应用说明。成达对人工签名和参考字体有显式本地资源依赖，
+以成达目录的说明为准，不适用下文 SHA-only 研究阶段的全部限制。
+
+整合记录见 [docs/CODE_CONSOLIDATION.md](docs/CODE_CONSOLIDATION.md)。
+
 SHA-only tooling for inspecting and reconstructing piping isometric drawings
 produced by Shape2D, PDMS, or Smart 3D.
 

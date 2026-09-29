@@ -22,6 +22,7 @@ def main() -> None:
         ("analyze_sha_pages.py", "."),
         ("run_sha_iso_render.py", "."),
         ("sha_to_svg_prototype.py", "."),
+        ("profiles/lanxing/parser", "profiles/lanxing/parser"),
     ]
     command = [
         sys.executable,
