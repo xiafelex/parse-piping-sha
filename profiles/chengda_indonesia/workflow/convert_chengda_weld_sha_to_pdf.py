@@ -52,6 +52,7 @@ from chengda_spool_table import SpoolInput, group_spools_by_sheet, read_spool_in
 from chengda_weld_mapping import atomic_write_json
 from chengda_template_owned_page import space_template_owned_pipe_splits
 from chengda_sheet_ids import sheet_id_key
+from chengda_audit_reasons import chinese_audit_reason
 from inject_sha_weld_callouts import sheet_streams
 from convert_chengda_sha_to_pdf import (
     publish_delivery_pdf,
@@ -104,19 +105,36 @@ def discover_weld_jobs(
 ) -> list[WeldPageJob]:
     sha_dir = Path(sha_dir).resolve()
     pcf_dir = Path(pcf_dir).resolve()
-    pcfs = {path.stem.casefold(): path for path in pcf_dir.rglob("*.pcf") if path.is_file()}
+    pcfs: dict[str, set[Path]] = {}
+    for path in pcf_dir.rglob("*.pcf"):
+        if not path.is_file():
+            continue
+        pcfs.setdefault(sheet_id_key(path.stem), set()).add(path)
+        # Exporters may remove forbidden filename separators rather than
+        # encode them. The internal pipeline reference retains the identity.
+        for line in path.read_text(encoding="utf-8-sig", errors="replace").splitlines():
+            fields = line.strip().split(None, 1)
+            if len(fields) == 2 and fields[0] == "PIPELINE-REFERENCE":
+                pcfs.setdefault(sheet_id_key(fields[1]), set()).add(path)
+    included_keys = (
+        {sheet_id_key(value) for value in included_sheet_ids}
+        if included_sheet_ids is not None else None
+    )
     jobs: list[WeldPageJob] = []
     missing: list[str] = []
     for sha_path in sorted(sha_dir.rglob("*.sha"), key=lambda path: str(path).casefold()):
         if (
-            included_sheet_ids is not None
-            and sha_path.stem.casefold() not in included_sheet_ids
+            included_keys is not None
+            and sheet_id_key(sha_path.stem) not in included_keys
         ):
             continue
-        pcf_path = pcfs.get(sha_path.stem.casefold())
-        if pcf_path is None:
+        candidates = pcfs.get(sheet_id_key(sha_path.stem), set())
+        if not candidates:
             missing.append(sha_path.stem)
             continue
+        if len(candidates) != 1:
+            raise ValueError(f"SHA对应多个PCF，拒绝自动选择：{sha_path.name}：{sorted(map(str, candidates))}")
+        pcf_path = next(iter(candidates))
         targets = sheet_streams(read_sha_streams(sha_path), None)
         for target in targets:
             jobs.append(
@@ -700,6 +718,7 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="焊点位置为空的审核行一律不落图，并列为EP3D缺失焊口待人工补标",
     )
+    parser.add_argument("--iso-review-remark-policy", choices=("default", "402001", "301200"), default="default")
     parser.add_argument("--no-management", action="store_true", help="不添加支架、阀门和法兰管理编号")
     parser.add_argument("--workers", type=int, default=2)
     parser.add_argument("--include", help="仅处理逗号分隔的单页图号")
@@ -1055,7 +1074,7 @@ def write_unmatched_number_xlsx(
                 issue["page"],
                 issue["kind"],
                 issue["number"],
-                issue["reason"],
+                chinese_audit_reason(str(issue["reason"])),
                 issue["coordinate"],
                 issue["source_row"],
             ]
@@ -1227,6 +1246,7 @@ def main() -> int:
             construction_records, skipped_construction = read_iso_review_weld_inputs(
                 args.weld_table,
                 missing_position_is_ep3d_missing=args.missing_position_is_ep3d_missing,
+                remark_policy=args.iso_review_remark_policy,
             )
         else:
             construction_records, skipped_construction = read_construction_weld_inputs(

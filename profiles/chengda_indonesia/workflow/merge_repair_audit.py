@@ -10,6 +10,7 @@ from pathlib import Path
 from _bootstrap import PROJECT_DIR as DATA_DIR, PARSER_DIR as CODE_PARSER_DIR, PROGRAM_DIR as CODE_PROGRAM_DIR, SHARED_DIR
 
 from openpyxl import load_workbook
+from chengda_sheet_ids import sheet_id_key
 
 from convert_chengda_weld_sha_to_pdf import (
     write_manual_review_log,
@@ -106,11 +107,30 @@ def main() -> int:
         merged_rows.append(repaired_row(target_page_dir, output_dir, sheet_id, page))
         repaired_count += 1
 
+    # Previously missing-PCF drawings have no row in the original summary.
+    # Append successful new pages instead of silently leaving them out.
+    existing = {(sheet_id_key(str(r["sheet_id"])), int(r["page"])) for r in merged_rows}
+    repair_summary = json.loads((repair_audit / "PDF标注汇总.json").read_text(encoding="utf-8"))
+    for row in repair_summary.get("rows", []):
+        key = (sheet_id_key(str(row["sheet_id"])), int(row["page"]))
+        if key in existing or row.get("status") != "success":
+            continue
+        source_page_dir = repair_audit / "pages" / f'{row["sheet_id"]}_{row["page"]}'
+        new_row = repaired_row(source_page_dir, output_dir, str(row["sheet_id"]), int(row["page"]))
+        shutil.copytree(source_page_dir, main_audit / "pages" / source_page_dir.name, dirs_exist_ok=True)
+        merged_rows.append(new_row)
+        existing.add(key)
+        repaired_count += 1
+    successful_sheets = {sheet_id_key(str(r["sheet_id"])) for r in merged_rows if r.get("status") == "success"}
+    missing_pcf_ids = [name for name in missing_pcf_ids if sheet_id_key(name) not in successful_sheets]
+    summary["job_count"] = len(merged_rows)
+    summary["missing_pcf_sha_count"] = len(missing_pcf_ids)
     merged_rows.sort(
         key=lambda row: (str(row.get("sheet_id", "")).casefold(), int(row.get("page", 0)))
     )
     summary["rows"] = merged_rows
     summary["success_pdf_count"] = sum(row.get("status") == "success" for row in merged_rows)
+    summary["success_page_count"] = summary["success_pdf_count"]
     summary["failed_pdf_count"] = sum(row.get("status") == "failed" for row in merged_rows)
     for key in (
         "callout_count",

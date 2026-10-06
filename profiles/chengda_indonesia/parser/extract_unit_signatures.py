@@ -30,7 +30,7 @@ X_RANGES = {
 }
 
 
-def crossing_signature_rgba(source: Image.Image, upscale: int = 12) -> Image.Image:
+def crossing_signature_rgba(source: Image.Image, upscale: int = 12, tail_margin: int = 5) -> Image.Image:
     """Remove full-width rules without cropping the pen strokes across them.
 
     The optional mode is for references with handwriting on a table boundary.
@@ -58,7 +58,7 @@ def crossing_signature_rgba(source: Image.Image, upscale: int = 12) -> Image.Ima
     if len(bands) >= 2:
         # Below the second boundary is the printed personnel identifier,
         # not handwriting. Retain a small stroke continuation at the rule.
-        grey = grey.crop((0, 0, grey.width, min(grey.height, bands[-1][-1] + 5)))
+        grey = grey.crop((0, 0, grey.width, min(grey.height, bands[-1][-1] + tail_margin)))
     grey = grey.transpose(Image.Transpose.ROTATE_180)
     alpha = grey.point(lambda v: max(0, min(255, round((245 - v) * 255 / 165))))
     bounds = alpha.getbbox()
@@ -92,7 +92,7 @@ def person_key(value: str) -> str:
     return re.split(r"[\\/]", value.strip())[-1].strip()
 
 
-def page_candidates(document: fitz.Document, page_number: int) -> dict[str, list[Candidate]]:
+def page_candidates(document: fitz.Document, page_number: int, min_height: float = 8.0) -> dict[str, list[Candidate]]:
     page = document[page_number - 1]
     if page.rect.width <= page.rect.height:
         return {}
@@ -100,7 +100,7 @@ def page_candidates(document: fitz.Document, page_number: int) -> dict[str, list
     for image in page.get_images(full=True):
         xref = int(image[0])
         for rect in page.get_image_rects(xref):
-            if not (930.0 <= rect.y0 <= 1015.0 and 8.0 <= rect.height <= 30.0):
+            if not (930.0 <= rect.y0 <= 1015.0 and min_height <= rect.height <= 30.0):
                 continue
             field = next(
                 (
@@ -145,16 +145,17 @@ def page_candidates(document: fitz.Document, page_number: int) -> dict[str, list
 def select_page(
     document: fitz.Document,
     requested_page: int | None,
+    min_height: float = 8.0,
 ) -> dict[str, list[Candidate]]:
     if requested_page is not None:
-        candidates = page_candidates(document, requested_page)
+        candidates = page_candidates(document, requested_page, min_height)
         if set(candidates) != set(FIELDS):
             raise RuntimeError(
                 f"page {requested_page}: expected {FIELDS}, found {tuple(candidates)}"
             )
         return candidates
     for page_number in range(1, len(document) + 1):
-        candidates = page_candidates(document, page_number)
+        candidates = page_candidates(document, page_number, min_height)
         if set(candidates) == set(FIELDS):
             # Reference sets normally share one signature triplet across all
             # drawing pages. Returning the first complete landscape title
@@ -170,16 +171,22 @@ def main() -> int:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--people", nargs=3, metavar=("REVISED", "CHECKED", "APPROVED"), required=True)
     parser.add_argument("--page", type=int)
+    parser.add_argument("--min-image-height", type=float, default=8.0,
+                        help="Minimum PDF signature image height; lower only for verified small signature objects")
     parser.add_argument("--sha-reference", type=Path,
                         help="Use the actual SHA viewbox for image dimensions")
     parser.add_argument("--preserve-crossing-strokes", action="store_true",
                         help="Keep handwriting crossing embedded table rules")
+    parser.add_argument("--rule-tail-margin", type=int, default=5,
+                        help="Source pixels retained below the last embedded rule; inspect to exclude printed IDs")
     args = parser.parse_args()
+    if args.rule_tail_margin < 0:
+        parser.error("--rule-tail-margin must be non-negative")
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     document = fitz.open(args.reference_pdf)
     try:
-        selected = select_page(document, args.page)
+        selected = select_page(document, args.page, args.min_image_height)
         first_candidate = next(iter(selected.values()))[0]
         page = document[first_candidate.page_number - 1]
         scale_x = SHEET_WIDTH / page.rect.width
@@ -213,7 +220,7 @@ def main() -> int:
                 with Image.open(io.BytesIO(payload["image"])) as opened:
                     source = opened.convert("RGB").copy()
                 upscale = 12
-                output = (crossing_signature_rgba(source, upscale=upscale)
+                output = (crossing_signature_rgba(source, upscale=upscale, tail_margin=args.rule_tail_margin)
                           if args.preserve_crossing_strokes
                           else signature_rgba(source, 2, upscale=upscale))
                 if output.getchannel("A").getbbox() is None:

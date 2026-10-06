@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from _bootstrap import PROJECT_DIR as DATA_DIR, PARSER_DIR as CODE_PARSER_DIR, PROGRAM_DIR as CODE_PROGRAM_DIR, SHARED_DIR
+import re
 from typing import Iterable
 
 from openpyxl import load_workbook
@@ -219,6 +220,7 @@ def read_construction_weld_inputs(
 def read_iso_review_weld_inputs(
     path: Path,
     missing_position_is_ep3d_missing: bool = False,
+    remark_policy: str = "default",
 ) -> tuple[list[ConstructionWeldInput], list[SkippedConstructionWeld]]:
     """Read the 200301 ISO-audit numbering table.
 
@@ -269,29 +271,43 @@ def read_iso_review_weld_inputs(
             status = value(row, "对应状态")
             in_scope = status != "不在对照范围"
             position = value(row, "焊点位置")
-            # Different review teams use either heading. Preserve both when
-            # present so unit-specific review remarks are not silently lost.
+            # Reviewers use several headings. The explicit EP-side finding
+            # takes precedence over a blank coordinate, which is only a
+            # fallback clue that the weld cannot be placed automatically.
+            # Review exports can append a second identically named note
+            # column. Read every note column, without changing numeric or
+            # coordinate column selection for the rest of the workbook.
             note_parts = [
-                note for note in (
-                    value(row, "人工核对备注"),
-                    value(row, "核对备注"),
-                )
-                if note
+                _text(row[column])
+                for name in ("审核备注", "人工核对备注", "核对备注")
+                for column, header in enumerate(headers)
+                if header == name and column < len(row) and _text(row[column])
             ]
             manual_note = "；".join(dict.fromkeys(note_parts))
 
-            if missing_position_is_ep3d_missing and not position:
-                skipped.append(
-                    SkippedConstructionWeld(
-                        excel_row,
-                        (iso_sheet if in_scope else source_sheet) or source_sheet,
-                        (review_number if in_scope else original_number)
-                        or review_number or original_number,
-                        "焊点位置为空，视为EP3D缺失焊口，需人工补标",
-                        True,
-                    )
-                )
+            if remark_policy == "301200" and "ISO需变更删除，可忽略" in manual_note:
+                skipped.append(SkippedConstructionWeld(
+                    excel_row, iso_sheet or source_sheet,
+                    review_number or original_number,
+                    f"核对备注：{manual_note}；按审核意见排除，不需补标",
+                    False,
+                ))
                 continue
+
+            # Explicit unit review contract; do not change other units' policy.
+            if remark_policy == "402001":
+                discard = "需删除" in manual_note or "重复标注" in manual_note
+                iso_missing = bool(re.search(r"ISO(?:图|侧)?(?:焊点|焊口)?(?:缺失|漏标|无此焊点)", manual_note, re.I))
+                ep_missing = bool(re.search(r"EP(?:3D)?(?:图|侧)?(?:焊点|焊口)?(?:缺失|漏标|未标注|无此焊点)", manual_note, re.I))
+                unresolved = "无法核对" in manual_note or ("需升版" in manual_note and not iso_missing)
+                if discard or ep_missing or unresolved:
+                    skipped.append(SkippedConstructionWeld(
+                        excel_row, iso_sheet or source_sheet,
+                        review_number or original_number,
+                        f"核对备注：{manual_note}；" + ("按审核意见排除，不需补标" if discard else "需人工核对补标"),
+                        not discard,
+                    ))
+                    continue
 
             if any(
                 "STUB END SP" in value(row, name).upper()
@@ -310,13 +326,25 @@ def read_iso_review_weld_inputs(
             # An ISO number may already have been supplied for a weld that is
             # completely absent from EP3D. Such a row has no trustworthy
             # coordinate/topology anchor and must remain for manual placement.
-            if any(marker in manual_note for marker in ("EP图焊点漏标", "EP图焊点缺失", "EP缺少焊点")):
+            ep_missing_note = next(
+                (
+                    note for note in note_parts
+                    if re.search(
+                        r"EP(?:3D)?(?:图|侧)?[^，。；,;]{0,10}?"
+                        r"(?:未标注|缺失|漏标|遗漏(?:焊点|焊口)|缺少(?:焊点|焊口)|没有(?:焊点|焊口)?)",
+                        note,
+                        re.IGNORECASE,
+                    )
+                ),
+                "",
+            )
+            if ep_missing_note:
                 skipped.append(
                     SkippedConstructionWeld(
                         excel_row,
                         iso_sheet or source_sheet,
                         review_number or original_number,
-                        f"EP3D缺少焊点，无可用坐标和元件拓扑，需人工补标（原备注：{manual_note}）",
+                        f"EP3D缺少焊点，需人工补标（审核备注：{ep_missing_note}）",
                         True,
                     )
                 )
@@ -332,6 +360,19 @@ def read_iso_review_weld_inputs(
                         iso_sheet or source_sheet,
                         review_number or original_number,
                         f"{manual_note}，属于施工ISO单侧焊口，需人工补标",
+                        True,
+                    )
+                )
+                continue
+
+            if missing_position_is_ep3d_missing and not position:
+                skipped.append(
+                    SkippedConstructionWeld(
+                        excel_row,
+                        (iso_sheet if in_scope else source_sheet) or source_sheet,
+                        (review_number if in_scope else original_number)
+                        or review_number or original_number,
+                        "焊点位置为空，视为EP3D缺失焊口，需人工补标",
                         True,
                     )
                 )

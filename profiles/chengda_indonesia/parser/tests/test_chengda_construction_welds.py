@@ -198,6 +198,50 @@ def test_duplicate_iso_number_prefers_matching_original_number() -> None:
     assert output["summary"]["unmapped_numbered_count"] == 1
 
 
+def test_iso_review_duplicate_note_columns_and_301200_discard(tmp_path: Path) -> None:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append([
+        "管线号", "焊点编号", "焊点类型", "焊点位置",
+        "ISO图号", "ISO焊口号", "对应状态", "核对备注", "核对备注",
+    ])
+    for number, note in [
+        ("F1", "EP图缺少焊点"),
+        ("F2", "ISO图缺少焊点"),
+        ("F3", "EP图缺少焊点,ISO需变更删除，可忽略"),
+        ("F4", "EP图缺少焊点，长直管增口"),
+    ]:
+        sheet.append(["A-01", number, "F", "100,200,300",
+                      "A-01", number, "已配对", "", note])
+    path = tmp_path / "duplicate-review-notes.xlsx"
+    workbook.save(path)
+    workbook.close()
+    records, skipped = read_iso_review_weld_inputs(path, remark_policy="301200")
+    assert [record.weld_number for record in records] == ["F2"]
+    assert {item.weld_number: item.manual_review_required for item in skipped} == {
+        "F1": True, "F3": False, "F4": True,
+    }
+    assert all("核对备注" in item.reason or "审核备注" in item.reason for item in skipped)
+
+
+def test_iso_review_omitted_ep_threaded_valve_note(tmp_path: Path) -> None:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append(["单页图号", "焊点编号", "焊点类型", "焊点位置",
+                  "ISO图号", "ISO焊口号", "对应状态", "核对备注"])
+    sheet.append(["A-01", "T1", "F", "100,200,300", "A-01", "T8",
+                  "已配对", "EP3D的螺纹阀门遗漏焊口"])
+    sheet.append(["A-01", "T2", "F", "400,500,600", "A-01", "T9",
+                  "已配对", "ISO遗漏焊口"])
+    path = tmp_path / "omitted-threaded-weld.xlsx"
+    workbook.save(path)
+    workbook.close()
+    records, skipped = read_iso_review_weld_inputs(path)
+    assert [r.weld_number for r in records] == ["T9"]
+    assert len(skipped) == 1 and skipped[0].manual_review_required
+    assert "EP3D的螺纹阀门遗漏焊口" in skipped[0].reason
+
+
 def test_iso_review_ep_missing_notes_require_manual_placement(tmp_path: Path) -> None:
     """EP侧缺失焊点不得吸附邻点；其他已补ISO号的记录仍应正常落图。"""
 
@@ -233,6 +277,46 @@ def test_iso_review_ep_missing_notes_require_manual_placement(tmp_path: Path) ->
     assert [item.weld_number for item in skipped] == ["FS76", "FS46", "F109"]
     assert all(item.manual_review_required for item in skipped)
     assert all("EP3D缺少焊点" in item.reason for item in skipped)
+
+
+def test_iso_review_ep_missing_note_precedes_blank_position_and_preserves_review_reason(
+    tmp_path: Path,
+) -> None:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append([
+        "单页图号", "焊点编号", "焊点类型", "焊点位置",
+        "ISO图号", "ISO焊口号", "对应状态", "审核备注", "核对备注",
+    ])
+    sheet.append([
+        "A-01", "F3A1", "F", None,
+        "A-01", "F1", "已配对", "ISO侧存在、EP图未标注", "完成核对",
+    ])
+    sheet.append([
+        "A-02", "F5", "F", "100,200,300",
+        "A-02", "F2", "已配对", "EP3D焊点漏标", None,
+    ])
+    sheet.append([
+        "A-03", "F7", "F", None,
+        "A-03", "F3", "已配对", None, "完成核对",
+    ])
+    sheet.append([
+        "A-04", "F8", "F", "400,500,600",
+        "A-04", "F4", "已配对", "ISO侧漏标，已人工补号", None,
+    ])
+    path = tmp_path / "review-notes.xlsx"
+    workbook.save(path)
+    workbook.close()
+
+    records, skipped = read_iso_review_weld_inputs(
+        path, missing_position_is_ep3d_missing=True
+    )
+    assert [record.weld_number for record in records] == ["F4"]
+    reasons = {item.weld_number: item.reason for item in skipped}
+    assert "ISO侧存在、EP图未标注" in reasons["F1"]
+    assert "焊点位置为空" not in reasons["F1"]
+    assert "EP3D焊点漏标" in reasons["F2"]
+    assert reasons["F3"] == "焊点位置为空，视为EP3D缺失焊口，需人工补标"
 
 
 def test_000201_all_blank_positions_require_manual_placement() -> None:

@@ -35,8 +35,8 @@ WELD_CALLOUT_HALO_WIDTH = 24.0
 WELD_CALLOUT_HALO_ROOT_GAP = 24.0
 WELD_CALLOUT_FONT_HEIGHT = 88.0
 # Chengda Sheet6 stores the values in the lower characteristic strip as one
-# shared text run format.  Its StyleCluster format record is indirect and is
-# not yet returned by ``style_format_metrics``.  Contour comparison against
+# shared text run format. Its indirect StyleCluster record is now resolved
+# through its explicit parent font definition. Contour comparison against
 # the issued reference PDF identifies the face as Windows Arial Narrow
 # Regular. The issued PDF text matrix is 4.074 pt with equal x/y scale on A3,
 # equivalent to 8.148 pt on this A2 output.  PSM is a line/glyph envelope, not
@@ -2405,7 +2405,8 @@ def style_format_metrics(style_data: bytes) -> dict[int, tuple[str, float]]:
     rather than a font height beside every string.  StyleCluster keeps that id
     next to an ``Arial-Z``/``Courier New-Z`` record whose height is the double
     28 bytes before the family name.  Keeping this relation avoids treating a
-    PSM glyph envelope as a CSS font size.
+    PSM glyph envelope as a CSS font size. Explicit parent references fill
+    unresolved formats without guessing from adjacent font definitions.
     """
 
     family_records: list[tuple[int, str, float]] = []
@@ -2437,6 +2438,35 @@ def style_format_metrics(style_data: bytes) -> dict[int, tuple[str, float]]:
         if candidates:
             _, family, ratio = min(candidates)
             resolved[format_ref] = (family, ratio)
+    # Decode explicit font definitions and indirect run-format records.
+    # An indirect record stores its parent at +24, not a nearby font name.
+    # Some exports use Arial Narrow-Z, which the legacy proximity reader
+    # does not recognize. Keep existing resolutions stable and fill gaps.
+    direct: dict[int, tuple[str, float]] = {}
+    parents: dict[int, int] = {}
+    for match in re.finditer(rb"\x00{10}\x01\x00(.{4})", style_data, re.DOTALL):
+        offset = match.start(1)
+        if offset + 80 > len(style_data):
+            continue
+        ref = struct.unpack_from('<I', style_data, offset)[0]
+        if not 0x20 <= ref < 0x10000:
+            continue
+        if style_data[offset + 12:offset + 20] == b'\x1f\x01\x00\x00\x04\x08\x00\x00':
+            ratio = struct.unpack_from('<d', style_data, offset + 28)[0]
+            family_match = re.match(rb'(?:[\x20-\x7e]\x00){3,}', style_data[offset + 56:])
+            if family_match and 0.001 <= ratio <= 0.02:
+                family = family_match.group().decode('utf-16le')
+                if family.startswith(('Arial', 'Courier New', 'SimHei')):
+                    direct[ref] = (family, ratio)
+        elif style_data[offset + 14:offset + 20] == b'\x12\x00\xe0\x02\x00\x00':
+            parents[ref] = struct.unpack_from('<I', style_data, offset + 24)[0]
+    for ref in direct.keys() | parents.keys():
+        current, seen = ref, set()
+        while current in parents and current not in seen:
+            seen.add(current)
+            current = parents[current]
+        if current in direct:
+            resolved.setdefault(ref, direct[current])
     return resolved
 
 
@@ -2466,17 +2496,19 @@ def is_chengda_feature_strip_value(
     format_ref: int,
     normalized_x: float,
     normalized_y: float,
+    source_family: str | None = None,
 ) -> bool:
     """Identify physical-Sheet values in Chengda's lower characteristic strip.
 
-    Across the complete 000200FW unit, all 1,950 records using this structural
-    pair occur in Sheet6's bottom strip.  Retaining the position guard prevents
-    a coincidentally reused id outside the title block from being restyled.
+    Retain the validated legacy format and also recognize resolved Narrow
+    formats in this same style/region. Numeric format ids vary by export;
+    the region guard prevents drawing text or document numbers being restyled.
     """
 
     return (
         style_ref == CHENGDA_FEATURE_VALUE_STYLE_REF
-        and format_ref == CHENGDA_FEATURE_VALUE_FORMAT_REF
+        and (format_ref == CHENGDA_FEATURE_VALUE_FORMAT_REF
+             or (source_family or '').startswith('Arial Narrow'))
         and 0.0 <= normalized_x <= 0.30
         and 0.0 <= normalized_y <= 0.04
     )
@@ -4090,6 +4122,33 @@ def sheet_revision_embedded_labels(
     return result
 
 
+def sheet_revision_direct_labels(
+    data: bytes,
+    triangles: list[dict[str, object]],
+) -> dict[tuple[int, ...], str]:
+    """Associate real Sheet text anchors with their enclosing revision marker.
+
+    A printable scan can also find a fake revision string in an object header.
+    Those pseudo-records use a tiny graphic reference (for example ref 8),
+    whereas the actual label has its own page graphic reference.
+    """
+
+    candidates: dict[tuple[int, ...], list[tuple[float, str]]] = defaultdict(list)
+    for record in text_records(data):
+        label = str(record["text"]).strip()
+        if int(record["graphic_ref"]) < 0x100 or not re.fullmatch(r"\d+[A-Z]?", label):
+            continue
+        x, y = float(record["x"]) * SHEET_UNIT, float(record["y"]) * SHEET_UNIT
+        for triangle in triangles:
+            left, bottom, right, top = triangle["source_bbox"]
+            if not (left - 12 <= x <= right + 12 and bottom - 12 <= y <= top + 12):
+                continue
+            cx, cy = triangle["center"]
+            key = tuple(int(ref) for ref in triangle["triangle_key"])
+            candidates[key].append((math.hypot(x - cx, y - cy), label))
+    return {key: min(values)[1] for key, values in candidates.items()}
+
+
 def rectangles_by_parent_ref(
     segments: list[tuple[float, float, float, float, int, int]]
 ) -> dict[int, tuple[int, int, int, int]]:
@@ -5041,8 +5100,25 @@ def render(
     sheet_line_width_by_child.update(template_line_widths(sheet, style_data))
     rectangles = sheet_rectangles(segments)
     revision_triangle_records = sheet_revision_triangle_records(segments)
+    revision_triangle_source = sheet
+    revision_triangles_from_template = False
+    if template_owned and not revision_triangle_records:
+        # In the template-owned SHA variant Sheet6 can be only a logical-page
+        # stub. Its visible triangle and direct label then reside in Sheet221.
+        template_revision_segments = unique_line_segments(
+            line_segments(template_data) + template_line_segments(template_data)
+        )
+        revision_triangle_records = sheet_revision_triangle_records(
+            template_revision_segments
+        )
+        if revision_triangle_records:
+            revision_triangle_source = template_data
+            revision_triangles_from_template = True
     revision_embedded_labels = sheet_revision_embedded_labels(
-        sheet, revision_triangle_records
+        revision_triangle_source, revision_triangle_records
+    )
+    revision_direct_labels = sheet_revision_direct_labels(
+        revision_triangle_source, revision_triangle_records
     )
     revision_triangle_child_refs = {
         int(child_ref)
@@ -5344,6 +5420,9 @@ def render(
         int(triangle["parent_ref"]) for triangle in revision_triangle_records
     )
     for triangle in revision_triangle_records:
+        if revision_triangles_from_template:
+            # Sheet221's native line layer already drew the same triangle.
+            continue
         parent_ref = int(triangle["parent_ref"])
         child_refs = tuple(int(ref) for ref in triangle["child_refs"])
         points = tuple(triangle["points"])
@@ -5646,6 +5725,10 @@ def render(
             ),
             None,
         )
+        if revision_triangle is not None and ref < 0x100:
+            # This is a header-overlap false positive, not a second revision
+            # label. The genuine Sheet text has a page-local graphic ref.
+            continue
         declared_font_height = declared_metric[1] * SHEET_UNIT if declared_metric is not None else None
         bbox = (
             None
@@ -5743,6 +5826,7 @@ def render(
             format_ref,
             float(obj["x"]),
             float(obj["y"]),
+            (format_metrics.get(format_ref) or (None, 0))[0],
         )
         format_metric = format_metrics.get(int(obj.get("format_ref", 0)))
         source_family = format_metric[0] if format_metric is not None else None
@@ -6187,16 +6271,21 @@ def render(
         # sibling must use the latest revision-stream value, not reuse the
         # other triangle's embedded label.
         label = (
-            latest_revision_label
-            if revision_triangle_parent_counts[parent_ref] > 1
-            else revision_embedded_labels.get(parent_ref) or latest_revision_label
+            revision_direct_labels.get(triangle_key)
+            or (
+                latest_revision_label
+                if revision_triangle_parent_counts[parent_ref] > 1
+                else revision_embedded_labels.get(parent_ref) or latest_revision_label
+            )
         )
         if not label:
             continue
         center_x, center_y = triangle["center"]
         font_size = float(triangle["height"]) * 0.50
         mapping = (
-            "sha-revision-composite-embedded-text"
+            "sha-revision-direct-sheet-text"
+            if triangle_key in revision_direct_labels
+            else "sha-revision-composite-embedded-text"
             if parent_ref in revision_embedded_labels
             else "sha-revision-stream-latest-record"
         )

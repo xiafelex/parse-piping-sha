@@ -1507,6 +1507,42 @@ class ChengdaTemplateFidelityTests(unittest.TestCase):
                 ]
                 self.assertEqual(labels, ["0"])
 
+    def test_400102_template_owned_revision_triangles_use_their_sheet_text(self) -> None:
+        """Logical Sheet6 stubs must not hide real Sheet221 revision labels."""
+
+        parser = load_parser()
+        source_dir = PROJECT_DIR / "SHA文件转换" / "400102" / "400102 SHA"
+        with tempfile.TemporaryDirectory() as temporary:
+            for suffix in ("21", "22", "23", "24"):
+                sheet_id = f"40-42-0102-26-40FW40001-{suffix}"
+                svg = Path(temporary) / f"{sheet_id}.svg"
+                parser.render(source_dir / f"{sheet_id}.sha", svg, 1, False, None, None, "Sheet6")
+                root = ET.parse(svg).getroot()
+                labels = [
+                    "".join(node.itertext())
+                    for node in root.iter("{http://www.w3.org/2000/svg}text")
+                    if node.attrib.get("data-layer") == "sha-revision-triangle-text"
+                ]
+                self.assertEqual(labels, ["0B"], sheet_id)
+
+    def test_400102_revision_triangle_ignores_overlapping_header_pseudotext(self) -> None:
+        """A fake ref-8 0B must not overlap the actual Sheet6 0A."""
+
+        parser = load_parser()
+        source_dir = PROJECT_DIR / "SHA文件转换" / "400102" / "400102 SHA"
+        with tempfile.TemporaryDirectory() as temporary:
+            for number in ("12", "13", "14", "19"):
+                sheet_id = f"40-42-0102-26-40FW400{number}-01"
+                svg = Path(temporary) / f"{sheet_id}.svg"
+                parser.render(source_dir / f"{sheet_id}.sha", svg, 1, False, None, None, "Sheet6")
+                root = ET.parse(svg).getroot()
+                labels = [
+                    "".join(node.itertext())
+                    for node in root.iter("{http://www.w3.org/2000/svg}text")
+                    if node.attrib.get("data-layer") == "sha-revision-triangle-text"
+                ]
+                self.assertEqual(labels, ["0A"], sheet_id)
+
     def test_closed_multi_arc_groups_are_rendered_as_revision_clouds(self) -> None:
         """不接直线但自身首尾闭合的多圆弧组是升版云线，不是无效弯头。"""
 

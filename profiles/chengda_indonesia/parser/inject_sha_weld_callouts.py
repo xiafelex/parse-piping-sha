@@ -117,6 +117,10 @@ class PointTarget:
     center_x: float
     center_y: float
     page: int
+    # Logical annotation identity is distinct from the shared physical root.
+    # Upstream mapping authorizes OLET/PAD sharing; preserve every accepted row.
+    weld_number: str = ""
+    weld_type: str = ""
 
 
 @dataclass
@@ -1951,7 +1955,7 @@ def inject_into_sheet(
         # Chengda markup uses one visual language for every weld type. S/F is
         # retained as data, but both are deliberately drawn as circular tags.
         marker_shape = "circle"
-        number = weld_number_by_point.get(point_key) if weld_number_by_point else None
+        number = point.weld_number or (weld_number_by_point.get(point_key) if weld_number_by_point else None)
         visible_number = number or f"{label_start:05d}"
         # Use one drafting symbol size for every S/F/T label.  Radius 120 is
         # the previously proven four-character FS25 envelope; shorter labels
@@ -2023,14 +2027,14 @@ def inject_into_sheet(
 
     for index, (point, placement) in enumerate(planned):
         point_key = (point.page, point.graphic_ref, point.uci)
-        number = weld_number_by_point.get(point_key) if weld_number_by_point else None
+        number = point.weld_number or (weld_number_by_point.get(point_key) if weld_number_by_point else None)
         if not number:
             number = f"{label_start + index:05d}"
 
         cx = placement.center_x
         cy = placement.center_y
         r = placement.marker_radius or diamond_radius
-        weld_type = weld_type_by_point.get(point_key, "") if weld_type_by_point else ""
+        weld_type = point.weld_type or (weld_type_by_point.get(point_key, "") if weld_type_by_point else "")
         if weld_type not in {"S", "F"}:
             raise ValueError(f"Missing S/F weld type for page {point.page}, UCI {point.uci}")
 
@@ -2362,9 +2366,14 @@ def main() -> None:
             )
         }
         stream_by_page = {target.page: target.stream_name for target in targets}
+        # The map contains the accepted logical callouts, including explicitly
+        # allowed multiple OLET/PAD welds at one physical point. Source-point
+        # deduplication must not reduce this list to one number per UCI.
+        points_by_stream = {target.stream_name: [] for target in targets}
         for entry in payload.get("welds", []):
             if (
-                entry.get("page") in (None, 999999)
+                not entry.get("weld_number")
+                or entry.get("page") in (None, 999999)
                 or entry.get("graphic_ref") is None
                 or entry.get("sha_x") in (None, "")
                 or entry.get("sha_y") in (None, "")
@@ -2381,10 +2390,12 @@ def main() -> None:
                 center_x=float(entry["sha_x"]),
                 center_y=float(entry["sha_y"]),
                 page=page,
+                weld_number=str(entry["weld_number"]),
+                weld_type=str(entry.get("weld_type", "")).upper(),
             )
-            key = (point.page, point.graphic_ref, point.uci)
+            key = (point.page, point.graphic_ref, point.uci, point.weld_number)
             existing = {
-                (item.page, item.graphic_ref, item.uci)
+                (item.page, item.graphic_ref, item.uci, item.weld_number)
                 for item in points_by_stream[stream_name]
             }
             if key not in existing:
