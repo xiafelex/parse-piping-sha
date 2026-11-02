@@ -220,6 +220,12 @@ def main() -> None:
                 # no measurable PSM sample for that shared style.
                 (0.0, 0.0, 80.0, 50.0),
             )
+            basis_x, basis_y = struct.unpack_from("<dd", payload, text_end + 16)
+            text_scale = math.hypot(basis_x, basis_y)
+            offset_x *= text_scale
+            offset_y *= text_scale
+            font_height *= text_scale
+            char_width *= text_scale
             label_width = max(font_height * 0.7, char_width * len(label))
             label_height = font_height
             label_left = text_x * SHEET_UNIT

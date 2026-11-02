@@ -26,9 +26,18 @@ def test_removed_separator_matches_internal_reference(tmp_path, monkeypatch):
 def test_duplicate_internal_reference_is_rejected(tmp_path, monkeypatch):
     sha, pcf = setup_files(tmp_path, monkeypatch)
     for name in ['one', 'two']:
-        (pcf / (name + '.pcf')).write_text('PIPELINE-REFERENCE LINE-A/B\n', encoding='utf-8')
+        (pcf / (name + '.pcf')).write_text('PIPELINE-REFERENCE LINE-A/B\nDESCRIPTION ' + name + '\n', encoding='utf-8')
     with pytest.raises(ValueError, match='多个PCF'):
         converter.discover_weld_jobs(sha, pcf)
+
+
+def test_identical_duplicate_prefers_exact_escaped_filename(tmp_path, monkeypatch):
+    sha, pcf = setup_files(tmp_path, monkeypatch)
+    for name in ['LINE-AB', 'LINE-A^2FB']:
+        (pcf / (name + '.pcf')).write_text('PIPELINE-REFERENCE LINE-A/B\n', encoding='utf-8')
+    jobs = converter.discover_weld_jobs(sha, pcf)
+    assert len(jobs) == 1
+    assert jobs[0].pcf_path == pcf / 'LINE-A^2FB.pcf'
 
 
 def test_no_fuzzy_separator_removal(tmp_path, monkeypatch):

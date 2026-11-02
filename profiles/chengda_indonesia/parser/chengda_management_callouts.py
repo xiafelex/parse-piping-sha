@@ -13,6 +13,7 @@ from pathlib import Path
 
 from chengda_management_table import ManagementInput
 from chengda_spool_table import SpoolInput
+from chengda_callout_text import weld_label_scale
 
 
 MANAGEMENT_COLOR = "#0066ff"
@@ -3186,7 +3187,7 @@ def overlay_unified_weld_callouts(
                 "y": f"{PAGE_HEIGHT - center_y:.1f}",
                 "fill": "#ff0000",
                 "stroke": "none",
-                "font-size": "88",
+                "font-size": f"{88.0 * weld_label_scale(str(row['weld_number'])):.3f}",
                 "font-family": "SimHei, Microsoft YaHei, Arial, sans-serif",
                 "font-weight": "700",
                 "text-anchor": "middle",

@@ -18,7 +18,7 @@ if __name__ == '__main__':
         '--support-table', str(unit / '支架表.csv'),
         '--valve-table', str(unit / '阀门表.csv'),
         '--flange-table', str(unit / '法兰表.csv'),
-        '--weld-table', str(unit / '焊口表-100800 0B_ISO对照结果.xlsx'),
+        '--weld-table', str(unit / '焊口表-100800 0B_ISO对照结果-人工1005.xlsx'),
         '--spool-number-column', '国内预制管段号',
     ]
     raise SystemExit(main())

@@ -47,6 +47,7 @@ from chengda_construction_welds import (
     group_construction_by_sheet,
     read_construction_weld_inputs,
     read_iso_review_weld_inputs,
+    remap_weld_sheet_aliases,
 )
 from chengda_spool_table import SpoolInput, group_spools_by_sheet, read_spool_inputs
 from chengda_weld_mapping import atomic_write_json
@@ -133,8 +134,15 @@ def discover_weld_jobs(
             missing.append(sha_path.stem)
             continue
         if len(candidates) != 1:
-            raise ValueError(f"SHA对应多个PCF，拒绝自动选择：{sha_path.name}：{sorted(map(str, candidates))}")
-        pcf_path = next(iter(candidates))
+            # Filename escapes can leave byte-identical PCF copies with the
+            # same internal pipeline reference. Only those are interchangeable;
+            # genuinely different revisions must still fail closed.
+            if len({sha256_file(path) for path in candidates}) != 1:
+                raise ValueError(f"SHA对应多个PCF，拒绝自动选择：{sha_path.name}：{sorted(map(str, candidates))}")
+        pcf_path = min(candidates, key=lambda path: (
+            sheet_id_key(path.stem) != sheet_id_key(sha_path.stem),
+            str(path).casefold(),
+        ))
         targets = sheet_streams(read_sha_streams(sha_path), None)
         for target in targets:
             jobs.append(
@@ -703,6 +711,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--weld-table", type=Path, help="施工焊口号来源Excel；省略则沿用PCF编号")
     parser.add_argument("--weld-number-column", default="施工焊口号")
+    parser.add_argument('--weld-sheet-alias', action='append', default=[],
+                        help='仅合并焊口表图号，格式原图号=目标图号；可重复指定，不改源表')
     parser.add_argument(
         "--spool-number-column",
         help="从焊口表读取预制管段号；每条管线每个管段仅标注一次",
@@ -718,11 +728,13 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="焊点位置为空的审核行一律不落图，并列为EP3D缺失焊口待人工补标",
     )
-    parser.add_argument("--iso-review-remark-policy", choices=("default", "402001", "301200"), default="default")
+    parser.add_argument("--iso-review-remark-policy", choices=("default", "402001", "301200", "100600", "100203", "201600", "404043", "304100-WS", "ws-iso-review", "ws-iso-review-302100"), default="default")
     parser.add_argument("--no-management", action="store_true", help="不添加支架、阀门和法兰管理编号")
     parser.add_argument("--workers", type=int, default=2)
     parser.add_argument("--include", help="仅处理逗号分隔的单页图号")
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--resume-log", type=Path,
+                        help="同一输入资料续跑：复用指定运行日志中已完成且PDF与页面审计完整的页面")
     parser.add_argument(
         "--repair-layout",
         action="store_true",
@@ -752,6 +764,37 @@ def _batch_row(result: PageResult) -> dict[str, object]:
         "unmapped_numbered_count": int(summary.get("unmapped_numbered_count", 0)),
         "ambiguous_count": int(summary.get("ambiguous_count", 0)),
     }
+
+
+def completed_log_row(job: WeldPageJob, output_dir: Path, audit_dir: Path,
+                      completed_pdfs: set[str], started_at: float) -> dict[str, object] | None:
+    """Recover a completed page from this run; incomplete audits are rerun."""
+    pdf = (Path(output_dir) / f"{job.sheet_id}_{job.page}.pdf").resolve()
+    if str(pdf).casefold() not in completed_pdfs or not pdf.is_file():
+        return None
+    if pdf.stat().st_mtime < started_at:
+        return None
+    if any(p.stat().st_mtime > started_at for p in (job.sha_path, job.pcf_path)):
+        return None
+    page_dir = Path(audit_dir).resolve() / 'pages' / f'{job.sheet_id}_{job.page}'
+    paths = [page_dir / name for name in ('weld-map.json', 'verification.json',
+                                         'trace.json', 'management-callouts.json')]
+    if not all(p.is_file() and p.stat().st_mtime >= started_at for p in paths):
+        return None
+    try:
+        validate_pdf(pdf)
+        verification = json.loads(paths[1].read_text(encoding='utf-8'))
+        json.loads(paths[2].read_text(encoding='utf-8'))
+        management = json.loads(paths[3].read_text(encoding='utf-8'))
+        callouts = management['callouts']
+        spools = sum(str(item.get('kind', '')).casefold() == 'spool' for item in callouts)
+        result = PageResult(job.sheet_id, job.page, pdf, paths[0], paths[1], paths[2],
+                            int(verification.get('unified_layout_counts', {}).get(
+                                'weld', verification.get('callout_count', 0))),
+                            paths[3], len(callouts) - spools, spools)
+        return _batch_row(result)
+    except (OSError, ValueError, KeyError, RuntimeError):
+        return None
 
 
 def _audit_batch_row(result: AuditPageResult) -> dict[str, object]:
@@ -891,11 +934,12 @@ def write_unmatched_number_xlsx(
     rows: list[dict[str, object]],
     missing_pcf_sheet_ids: list[str] | None = None,
     layout_evaluated: bool = True,
+    extra_issues: list[dict[str, object]] | None = None,
 ) -> Path:
     """Write one concise sheet containing only numbers absent from PDFs."""
 
     audit_dir = Path(audit_dir).resolve()
-    issues: list[dict[str, object]] = []
+    issues: list[dict[str, object]] = list(extra_issues or [])
     review_matches: list[dict[str, object]] = []
     best_effort_pages: list[dict[str, object]] = []
     kind_names = {
@@ -1241,6 +1285,7 @@ def main() -> int:
     spool_by_sheet: dict[tuple[str, int], list[SpoolInput]] = {}
     manual_weld_by_sheet: dict[str, list[object]] = {}
     skipped_construction = []
+    table_issues_without_jobs: list[dict[str, object]] = []
     if args.weld_table is not None:
         if args.weld_table_mode == "iso-review":
             construction_records, skipped_construction = read_iso_review_weld_inputs(
@@ -1252,7 +1297,29 @@ def main() -> int:
             construction_records, skipped_construction = read_construction_weld_inputs(
                 args.weld_table, args.weld_number_column
             )
+        construction_records = remap_weld_sheet_aliases(construction_records, args.weld_sheet_alias)
+        skipped_construction = remap_weld_sheet_aliases(skipped_construction, args.weld_sheet_alias)
         construction_by_sheet = group_construction_by_sheet(construction_records)
+        # Full-unit audit must also retain table targets that have no page job.
+        # They otherwise disappear because page workers cannot report them.
+        if not args.include:
+            job_sheet_keys = {sheet_id_key(job.sheet_id) for job in jobs}
+            missing_pcf_keys = {sheet_id_key(value) for value in missing_pcf_sheet_ids}
+            for record in [*construction_records, *[item for item in skipped_construction if item.manual_review_required]]:
+                key = sheet_id_key(record.sheet_id)
+                if key in job_sheet_keys:
+                    continue
+                reason = ("目标图号缺少PCF，无法生成编号标注" if key in missing_pcf_keys
+                          else "审核目标图号无对应SHA文件，需人工核对图号及补标")
+                source_reason = getattr(record, "reason", "")
+                if source_reason:
+                    reason = f"{source_reason}；{reason}"
+                table_issues_without_jobs.append({
+                    "sheet_id": record.sheet_id, "page": 1, "kind": "焊口",
+                    "number": record.weld_number, "reason": reason,
+                    "coordinate": ", ".join(str(value) for value in getattr(record, "coordinate", ())),
+                    "source_row": record.excel_row,
+                })
         selected_numbers = {
             (sheet_id_key(row.sheet_id), row.weld_number.casefold())
             for row in construction_records
@@ -1268,6 +1335,39 @@ def main() -> int:
             )
 
     rows: list[dict[str, object]] = []
+    pending_jobs = jobs
+    if args.resume_log is not None:
+        if args.audit_only:
+            raise ValueError('--resume-log仅适用于同一输入资料的PDF转换续跑')
+        log_path = Path(args.resume_log).resolve()
+        metadata = log_path.stat()
+        started_at = getattr(metadata, 'st_birthtime', metadata.st_ctime)
+        previous_log_lines = log_path.read_text(encoding='utf-8-sig').splitlines()
+        for line in previous_log_lines:
+            if line.startswith('续跑原始启动时间: '):
+                started_at = min(started_at, float(line.split(': ', 1)[1]))
+        inputs = [args.weld_table, *(args.support_table or []),
+                  *(args.valve_table or []), *(args.flange_table or [])]
+        if args.signature_dir and Path(args.signature_dir).is_dir():
+            inputs.extend(p for p in Path(args.signature_dir).rglob('*') if p.is_file())
+        if any(Path(p).stat().st_mtime > started_at for p in inputs if p is not None):
+            raise ValueError('输入表格或签名资源在原任务启动后有变更，不能复用该日志续跑')
+        completed_pdfs = {line[len('已生成: '):].split('，焊口标注', 1)[0].strip().casefold()
+                          for line in previous_log_lines
+                          if line.startswith('已生成: ')}
+        print(f'续跑原始启动时间: {started_at}')
+        pending_jobs = []
+        for job in jobs:
+            row = completed_log_row(job, args.output_dir, args.audit_dir, completed_pdfs, started_at)
+            if row is None:
+                pending_jobs.append(job)
+            else:
+                rows.append(row)
+                # Retain the same completion line so this resumed log can be
+                # used again without losing earlier completed pages.
+                print(f"已生成: {row['pdf']}，焊口标注{row['callout_count']}个，"
+                      f"管理编号{row['management_callout_count']}个，管段号{row['spool_callout_count']}个（复用）")
+        print(f'续跑：复用{len(rows)}页，剩余{len(pending_jobs)}页，并发{args.workers}')
     # Unified page layout is CPU-bound Python work.  A thread pool leaves the
     # expensive compatibility search behind the GIL and effectively serial;
     # page jobs are independent, so processes provide real --workers
@@ -1289,7 +1389,7 @@ def main() -> int:
                     manual_weld_by_sheet.get(sheet_id_key(job.sheet_id), []),
                     spool_by_sheet.get((sheet_id_key(job.sheet_id), job.page), []),
                 ): job
-                for job in jobs
+                for job in pending_jobs
             }
         else:
             futures = {
@@ -1311,7 +1411,7 @@ def main() -> int:
                     spool_by_sheet.get((sheet_id_key(job.sheet_id), job.page), []),
                     args.repair_layout,
                 ): job
-                for job in jobs
+                for job in pending_jobs
             }
         for future in as_completed(futures):
             job = futures[future]
@@ -1391,6 +1491,7 @@ def main() -> int:
         rows,
         missing_pcf_sheet_ids,
         layout_evaluated=not args.audit_only,
+        extra_issues=table_issues_without_jobs,
     )
     print(f"人工审核日志: {review_log_path}")
     print(f"人工补标清单: {unmatched_xlsx_path}")

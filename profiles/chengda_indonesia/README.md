@@ -39,6 +39,30 @@ Windows PDF 渲染沿用原来的 Microsoft Edge；其他系统需配置 Playwri
 无标注转换使用 `workflow/convert_chengda_sha_to_pdf.py`；
 PCF 反写使用 `workflow/write_chengda_welds_to_pcf.py`。
 
+### WS / FW 批次入口
+
+批次入口使用 `--unit` 选择单元，不能按文件名推断编号规则：
+
+```powershell
+# WS 原始 EP3D 编号；部分单元从 EP3D tmp 批次目录读取表格
+python profiles/chengda_indonesia/units/convert_ws_ep3d.py --unit 104100-WS --workers 8 --force
+# WS 审核 ISO 编号；302100 无对照图范围按已确认规则回退 EP3D 编号
+python profiles/chengda_indonesia/units/convert_ws_iso_review.py --unit 300500-WS --workers 8 --force
+# FW 原始 EP3D 编号；PCF 使用通用目录中的分版文件夹
+python profiles/chengda_indonesia/units/convert_fw_ep3d.py --unit 200500FW --workers 8 --force
+```
+
+以上入口不标管段号。原始/审核焊口表、三类管理表、单元签名目录均需本地提供；
+正式输出和审计写回各单元目录。`--plan-only` 仅检查 SHA/PCF 任务发现，
+`--audit-only` 执行编号匹配但不绘制 PDF，不能用它证明视觉布局已验证。
+仅当输入未改动且 PDF 和逐页审计均完整时，可用 `--resume-log` 从原日志续跑。
+`tools/refresh_completed_audit_summary.py` 可基于逐页证据重建完整审计；
+`workflow/merge_repair_audit.py` 用于把定向修复页合并回整单元审计。
+
+`tools/prepare_*signatures.py` 和 `tools/refresh_404049_zxe_signature.py`
+保留签名准备、人工抠图复用及参考 PDF 提取方法，不包含签名图片本身。
+这些资源脚本依赖对应本地参考图和已接受的签名资源，不能在空数据目录中直接复现。
+
 ## 验证
 
 ```powershell

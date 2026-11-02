@@ -31,6 +31,7 @@ from statistics import median
 from pathlib import Path
 
 import olefile
+from chengda_callout_text import weld_label_scale
 
 from analyze_iso_split import (
     forward_owned_dynamic_graphics,
@@ -1853,8 +1854,9 @@ def pack_text_record(
     struct.pack_into("<I", raw, 0, graphic_ref)
     struct.pack_into("<I", raw, 8, template.style_ref)
     visible_number = stored_number.rstrip() or stored_number
-    width = max(style_model.font_height * 0.7, style_model.char_width * len(visible_number))
-    height = style_model.font_height
+    text_scale = weld_label_scale(visible_number)
+    width = max(style_model.font_height * 0.7, style_model.char_width * len(visible_number)) * text_scale
+    height = style_model.font_height * text_scale
     left = center_x - width / 2
     bottom = center_y - height / 2
     if template.style_ref in DIRECT_TEXT_ANCHOR_STYLES:
@@ -1865,10 +1867,10 @@ def pack_text_record(
         # The selected 80X25 template uses a PSM-style local text offset.
         # Invert that offset so the final rendered glyph box is centred in
         # the diamond rather than displaced with the borrowed template.
-        anchor_x = (left - style_model.offset_x) / SHEET_UNIT
-        anchor_y = (bottom - style_model.offset_y) / SHEET_UNIT
+        anchor_x = (left - style_model.offset_x * text_scale) / SHEET_UNIT
+        anchor_y = (bottom - style_model.offset_y * text_scale) / SHEET_UNIT
     transform_offset = 24 + len(stored_number.encode("utf-16le"))
-    struct.pack_into("<dddd", raw, transform_offset, anchor_x, anchor_y, 1.0, 0.0)
+    struct.pack_into("<dddd", raw, transform_offset, anchor_x, anchor_y, text_scale, 0.0)
     return bytes(raw)
 
 

@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from _bootstrap import PROJECT_DIR as DATA_DIR, PARSER_DIR as CODE_PARSER_DIR, PROGRAM_DIR as CODE_PROGRAM_DIR, SHARED_DIR
@@ -241,9 +241,10 @@ def read_iso_review_weld_inputs(
             raise ValueError(f"焊口表为空：{path}") from exc
         weld_type_column = _weld_type_column(headers)
         sheet_column = "单页图号" if "单页图号" in headers else "管线号"
+        original_number_column = "焊点编号" if "焊点编号" in headers else "EP3D"
         required = (
             sheet_column,
-            "焊点编号",
+            original_number_column,
             weld_type_column,
             "焊点位置",
             "ISO图号",
@@ -262,14 +263,28 @@ def read_iso_review_weld_inputs(
         records: list[ConstructionWeldInput] = []
         skipped: list[SkippedConstructionWeld] = []
         for excel_row, row in enumerate(rows, start=2):
+            if remark_policy in {"100600", "100203"} and not any(_text(cell) for cell in row):
+                continue
             source_sheet = value(row, sheet_column)
-            original_number = value(row, "焊点编号")
+            original_number = value(row, original_number_column)
             iso_sheet = value(row, "ISO图号")
             iso_number = value(row, "ISO焊口号")
             checked_number = value(row, "施工焊口号人工核对")
             review_number = checked_number or iso_number
             status = value(row, "对应状态")
             in_scope = status != "不在对照范围"
+            if remark_policy in {'ws-iso-review', 'ws-iso-review-302100'}:
+                # These WS deliveries explicitly select the reviewed ISO
+                # column, not construction numbers or an EP3D fallback.
+                review_number = iso_number
+                checked_number = ''
+                in_scope = True
+                if (remark_policy == 'ws-iso-review-302100'
+                        and status == '暂不对照' and not iso_number
+                        and original_number and value(row, '焊点位置')):
+                    # This unit's 37 no-reference rows were explicitly
+                    # authorized to retain EP3D IDs. Other blanks stay manual.
+                    in_scope = False
             position = value(row, "焊点位置")
             # Reviewers use several headings. The explicit EP-side finding
             # takes precedence over a blank coordinate, which is only a
@@ -281,9 +296,60 @@ def read_iso_review_weld_inputs(
                 _text(row[column])
                 for name in ("审核备注", "人工核对备注", "核对备注")
                 for column, header in enumerate(headers)
-                if header == name and column < len(row) and _text(row[column])
+                if re.fullmatch(re.escape(name) + r"(?:\d+)?", header)
+                and column < len(row) and _text(row[column])
             ]
             manual_note = "；".join(dict.fromkeys(note_parts))
+
+            if remark_policy == "404043" and re.search(r"以\s*EP(?:3D)?(?:焊口)?\s*为准", manual_note, re.I):
+                # Explicit reviewer instruction overrides the filled ISO ID.
+                in_scope = False
+
+            if remark_policy == "201600":
+                # 0B review: no ISO drawing is an EP3D-only numbering scope.
+                # ISO missing labels with supplied IDs are still drawable.
+                if "ISO无图" in manual_note:
+                    in_scope = False
+                discard = "需删除" in manual_note
+                ep_missing = bool(re.search(
+                    r"EP(?:3D)?(?:图纸|图|侧)?(?:未标注|无图|无此点|无此焊点|无此支管|缺少焊点|焊点缺失)",
+                    manual_note, re.I,
+                ))
+                if discard or ep_missing:
+                    skipped.append(SkippedConstructionWeld(
+                        excel_row, iso_sheet or source_sheet,
+                        review_number or original_number,
+                        f"审核备注：{manual_note}；" +
+                        ("按审核意见排除，不需补标" if discard else "EP3D缺少对应图形或焊点，需人工补标"),
+                        not discard,
+                    ))
+                    continue
+
+            if remark_policy == "100203":
+                # The numbered note is the human review; the unsuffixed note
+                # describes automatically appended ISO-only rows. Retain both,
+                # but put the human finding first in manual-review reasons.
+                human_notes = [
+                    _text(row[column]) for column, header in enumerate(headers)
+                    if re.fullmatch(r"核对备注\d+", header)
+                    and column < len(row) and _text(row[column])
+                ]
+                manual_note = "；".join(dict.fromkeys(human_notes + note_parts))
+                ep_missing = bool(re.search(
+                    r"EP(?:3D)?(?:图纸|图|侧)?[^，。；,;]{0,10}?"
+                    r"(?:未标注|缺失|漏标|缺少(?:焊点|焊口|管件))",
+                    manual_note, re.I,
+                ))
+                if ep_missing or (in_scope and not review_number):
+                    reason = ("EP3D缺少焊点或管件，需人工补标" if ep_missing
+                              else "ISO对照范围内无审核ISO焊口号，需人工核对补标")
+                    if manual_note:
+                        reason += f"（审核备注：{manual_note}）"
+                    skipped.append(SkippedConstructionWeld(
+                        excel_row, iso_sheet or source_sheet,
+                        review_number or original_number, reason, True,
+                    ))
+                    continue
 
             if remark_policy == "301200" and "ISO需变更删除，可忽略" in manual_note:
                 skipped.append(SkippedConstructionWeld(
@@ -295,7 +361,7 @@ def read_iso_review_weld_inputs(
                 continue
 
             # Explicit unit review contract; do not change other units' policy.
-            if remark_policy == "402001":
+            if remark_policy in {"402001", "100600", "304100-WS", "ws-iso-review", "ws-iso-review-302100"}:
                 discard = "需删除" in manual_note or "重复标注" in manual_note
                 iso_missing = bool(re.search(r"ISO(?:图|侧)?(?:焊点|焊口)?(?:缺失|漏标|无此焊点)", manual_note, re.I))
                 ep_missing = bool(re.search(r"EP(?:3D)?(?:图|侧)?(?:焊点|焊口)?(?:缺失|漏标|未标注|无此焊点)", manual_note, re.I))
@@ -321,6 +387,14 @@ def read_iso_review_weld_inputs(
                         "描述1或描述2包含STUB END SP，按强制排除规则不落图",
                     )
                 )
+                continue
+
+            if remark_policy in {'ws-iso-review', 'ws-iso-review-302100'} and in_scope and not review_number:
+                skipped.append(SkippedConstructionWeld(
+                    excel_row, iso_sheet or source_sheet, original_number,
+                    f'ISO焊口号为空（对应状态：{status or "空白"}），待人工确认审核编号，不退回EP3D编号',
+                    True,
+                ))
                 continue
 
             # An ISO number may already have been supplied for a weld that is
@@ -449,6 +523,39 @@ def read_iso_review_weld_inputs(
     finally:
         workbook.close()
     return records, skipped
+
+
+def remap_weld_sheet_aliases(records, aliases: list[str]):
+    """Apply explicit weld-table aliases, never a global suffix-stripping rule.
+
+    Keep original source sheet IDs and Excel row numbers for traceability.
+    Management tables and SHA/PCF discovery are intentionally unaffected.
+    """
+    mapping = {}
+    for entry in aliases:
+        source, separator, target = entry.partition('=')
+        if not separator or not source.strip() or not target.strip():
+            raise ValueError(f'焊口图号别名格式应为原图号=目标图号：{entry}')
+        key = sheet_id_key(source)
+        target = target.strip()
+        if key in mapping and sheet_id_key(mapping[key]) != sheet_id_key(target):
+            raise ValueError(f'焊口图号别名存在冲突：{source}')
+        mapping[key] = target
+    for source, target in mapping.items():
+        target_key = sheet_id_key(target)
+        if target_key in mapping and target_key != source:
+            raise ValueError('焊口图号别名不能形成链式或循环映射，请直接指定最终图号')
+    result = []
+    for record in records:
+        target = mapping.get(sheet_id_key(record.sheet_id))
+        if target is None:
+            result.append(record)
+            continue
+        updates = {'sheet_id': target}
+        if isinstance(record, ConstructionWeldInput):
+            updates['source_sheet_id'] = record.source_sheet_id or record.sheet_id
+        result.append(replace(record, **updates))
+    return result
 
 
 def group_construction_by_sheet(

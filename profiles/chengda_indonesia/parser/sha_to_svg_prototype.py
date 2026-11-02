@@ -19,6 +19,7 @@ import xml.etree.ElementTree as ET
 from collections import Counter, defaultdict
 from pathlib import Path
 from chengda_paths import ASSET_DIR, PROJECT_DIR
+from chengda_callout_text import weld_label_scale
 from statistics import median
 
 from analyze_iso_split import dynamic_graphics, read_sha_streams
@@ -3757,7 +3758,10 @@ def text_records(data: bytes) -> list[dict[str, object]]:
                 for value in (x, y, direction_x, direction_y)
             )
             or not (-1 < x < 2 and -1 < y < 2)
-            or not (0.8 <= math.hypot(direction_x, direction_y) <= 1.2)
+            or not (
+                0.8 <= math.hypot(direction_x, direction_y) <= 1.2
+                or abs(math.hypot(direction_x, direction_y) - weld_label_scale(decoded.strip())) < 1e-6
+            )
         ):
             continue
         injected_text_ranges.append((text_start, text_end))
@@ -6155,7 +6159,7 @@ def render(
                 else ""
             )
             if injected_label:
-                rendered_height = WELD_CALLOUT_FONT_HEIGHT
+                rendered_height = WELD_CALLOUT_FONT_HEIGHT * weld_label_scale(text)
                 weld_style = f' fill="{WELD_CALLOUT_COLOR}" font-weight="700"'
                 rendered_font_family_attr = (
                     ' font-family="SimHei, Microsoft YaHei, Arial, sans-serif"'
