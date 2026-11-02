@@ -1,0 +1,22 @@
+[
+  {
+    "file": "analyze_iso_split.py",
+    "source": "profiles\\lanxing\\parser\\analyze_iso_split.py",
+    "sha256": "d9bba09f539398d0c8b8f9c29dc75293712fd3eab1c7447a9873f955f92df85f"
+  },
+  {
+    "file": "analyze_sha_pages.py",
+    "source": "profiles\\lanxing\\parser\\analyze_sha_pages.py",
+    "sha256": "9980182478c2183f6d05fd2f6880fe0aead99fdbbbb6364af8bda3056e8871cb"
+  },
+  {
+    "file": "sha_to_svg_prototype.py",
+    "source": "profiles\\lanxing\\parser\\sha_to_svg_prototype.py",
+    "sha256": "afa6312fada372d7b24a93141561e265abbc470f4e5c44a9e6bd58561548a4e2"
+  },
+  {
+    "file": "run_sha_iso_render.py",
+    "source": "profiles\\lanxing\\parser\\run_sha_iso_render.py",
+    "sha256": "4fa7e59cf8dade35633926c9354ee580707f49155c1b02286ff733e43ca9ffa8"
+  }
+]

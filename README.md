@@ -2,10 +2,11 @@
 
 ## 本地正式代码入口（2026-09 整合）
 
-本仓库统一维护两个隔离的项目版本：
+本仓库统一维护三个隔离的项目版本：
 
 - [蓝星 profiles/lanxing](profiles/lanxing/README.md)：固化的蓝星实现及批处理入口。
 - [成达 profiles/chengda_indonesia](profiles/chengda_indonesia/README.md)：持续完善的成达通用规则、单元入口和审计。
+- [阿联酋 profiles/uae](profiles/uae/README.md)：独立的TXT解析、POD二进制解码及SHA适配研究；入口`run_uae.py`，不改变另两个项目规则。
 - `shared/`：两个项目原本共用的 PCF 反写代码。
 - `tools/`：开发验证工具。项目输入、输出、签名和参考图字体位于仓库外的项目数据目录。
 

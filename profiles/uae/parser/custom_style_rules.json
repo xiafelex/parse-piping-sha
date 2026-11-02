@@ -1,0 +1,11 @@
+{
+  "name": "UAE fabrication-style proof of concept",
+  "page_mm": [420, 297],
+  "source_clip_mm": [8, -289, 290, 225],
+  "drawing_origin_mm": [8, 10],
+  "drawing_scale": 0.93,
+  "line_width_mm": {"PIPE": 0.48, "ELBOW": 0.36, "TEE": 0.36, "FLANGE": 0.3, "VALVE": 0.3, "OTHER": 0.15},
+  "weld": {"shop_symbol": "filled_circle", "field_symbol": "cross", "label_radius_mm": 3.0, "label_font_mm": 1.8, "virtual_field_every": 4},
+  "virtual_data": true,
+  "notice": "STYLE DEMO ONLY - VIRTUAL WELD NUMBERS / S-F / SPOOL TAGS - NOT FOR FABRICATION"
+}
